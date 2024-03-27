@@ -1,0 +1,203 @@
+#!/bin/bash
+###############################################################################
+#@(#) (INFO-SLURM) :H: combine or process all Slurm man-pages
+###############################################################################
+function PARSE(){
+# Note that we use "$@" to let each command-line parameter expand to a separate word.
+# The quotes around "$@" are essential!
+# We need TEMP as the 'eval set --' would nuke the return value of getopt.
+# export EDITOR=${FCEDIT:-${EDITOR:-${VISUAL:-vim -c 'set ft=man ts=8 nomod nolist nonu' -c 'nnoremap i <nop>'}}}
+export EDITOR=${FCEDIT:-${EDITOR:-${VISUAL:-vi}}}
+export EDIT=FALSE
+export WHERE=FALSE
+export PREFIX=FALSE
+TEMP=$(getopt -o 'hvuwpb:e::' --long 'help,version,usage,where,prefix,b-long:,editor::' -n "$(basename $0)" -- "$@")
+
+if [ $? -ne 0 ]; then
+        echo 'Terminating...' >&2
+        exit 1
+fi
+
+# Note the quotes around "$TEMP": they are essential!
+eval set -- "$TEMP"
+unset TEMP
+
+while true; do
+        case "$1" in
+                '-h'|'--help')    shift;    HELP;    exit ;;
+                '-v'|'--version') shift;    VERSION; exit ;;
+                '-u'|'--usage')   shift;    USAGE;   exit ;;
+
+                '-w'|'--where')   shift;    WHERE=TRUE;   continue ;;
+                '-p'|'--prefix')  shift;    PREFIX=TRUE;  continue ;;
+
+                '-b'|'--b-long')  shift 2
+                        echo "Option b, argument '$2'"
+                        continue
+                ;;
+                '-e'|'--editor')
+                        # c has an optional argument. As we are in quoted mode,
+                        # an empty parameter will be generated if its optional
+                        # argument is not found.
+                        case "$2" in
+                                '') EDIT=TRUE  EDITOR=$EDITOR ;; # Option e, no argument
+                                *)   EDIT=TRUE EDITOR="$2"    ;; # Option e, argument '$2'
+                        esac
+                        shift 2
+                        continue
+                ;;
+                '--')
+                        shift
+                        break
+                ;;
+                *)
+                        echo 'Internal error!' >&2
+                        exit 1
+                ;;
+        esac
+done
+
+# Remaining arguments:
+OTHER=''
+for arg; do
+        OTHER="$OTHER $arg"
+done
+}
+###############################################################################
+function HELP(){
+TTY=${TTY:-$(tty --silent||echo FALSE && echo TRUE)}
+HELPCAT <<\EOF
+NAME
+   s-docs(1) - combine or process all Slurm man-pages
+SYNOPSIS
+    s-docs [--where|--prefix|--edit]
+
+    s-docs --help|--version|--usage
+DESCRIPTION
+    Search for or display all Slurm man-pages.
+
+    The default is to list all Slurm man-pages to stdout.
+
+ NOTE
+    If the man-page files are renamed to have a "Slurm" extension name
+    man(1) can easily provide most of the function of the s-doc(1)
+    command and more.
+
+    Simply renaming the man-pages provided with Slurm from
+    ${NAME}.${SECTION}.gz to ${NAME}.${SECTION}Slurm.gz enables many
+    additional man(1) capabilities on systems with a modern version of
+    man(1) that supports extension names in filenames.
+
+    man(1) can then use the -S and -e options and their aliases so that
+    Slurm-specific man-pages may be selected.  For example:
+
+        man --sections=1Slurm --regex '.*'|col -b
+        export MANSECT=1Slurm:2Slurm:3Slurm:4Slurm:5Slurm:7Slurm:8Slurm
+        #
+        man -e 1slurm slurm
+        # list all Slurm topics
+        man  -S $MANSECT --regex -k '.*'
+        # Note: just setting MANSECT does not work and colon delimiter
+                works as well as comma even though the documentation
+                mentions only comma.
+
+OPTIONS
+   --where    show full path to man-pages
+   --prefix   prefix man-pages with name of page.
+   --edit     same as --prefix accept edit the resulting file
+              and remove it when the editor exits. Looks for editor
+              name in environment variable FCEDIT, then EDITOR,
+              next VISUAL, then defaults to "vi".
+   --help     display this help and exit
+   --version  output version information and exit
+   --usage    display condensed description of options
+EXAMPLES
+ Common usage:
+
+      s-docs >/tmp/slurm.txt # combine all man-pages for Slurm into file
+      # look for specified string in man-pages
+      s-docs --prefix|grep -i 'association'
+SEE ALSO
+
+   + https://slurm.schedmd.com/documentation.html
+EOF
+}
+###############################################################################
+function VERSION(){
+cat <<\EOF
+PRODUCT:        Slurm tools
+PROGRAM:        s-docs
+DESCRIPTION:    combine or process Slurm-related man-pages
+VERSION:        1.0, 2023-12-29
+AUTHOR:         John S. Urban
+REPORTING BUGS: http://www.urbanjost.altervista.org/
+HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+LICENSE:        MIT
+EOF
+}
+###############################################################################
+function USAGE(){
+cat <<\EOF
+   --where,w    show full path to man-pages
+   --prefix,p   prefix man-pages with name of page.
+   --edit,e     same as --prefix accept edit file, deleting it on editor exit
+
+   --help,h     display this help and exit
+   --version,v  output version information and exit
+   --usage,u    display condensed description of options
+EOF
+}
+###############################################################################
+# main
+source $(dirname $0)/.functions
+list="sshare.1              sprio.1              scrontab.1          srun.1           scontrol.1 \
+      scrun.1               sbcast.1             slurm-wlm.1         sinfo.1          salloc.1 \
+      sacct.1               sview.1              sdiag.1             sacctmgr.1       sh5util.1 \
+      sbatch.1              scancel.1            sattach.1           strigger.1       squeue.1 \
+      sstat.1               sreport.1            slurmstepd-wlm.8    spank.8          slurmd-wlm.8 \
+      slurmctld-wlm.8       slurmdbd.8           slurmrestd.8        slurmdbd.conf.5  helpers.conf.5 \
+      job_container.conf.5  cgroup.conf.5        acct_gather.conf.5  knl.conf.5       oci.conf.5 \
+      slurm.conf.5          ext_sensors.conf.5   mpi.conf.5          gres.conf.5      burst_buffer.conf.5 \
+      slurmctld.8           slurmstepd.8         slurmd.8            topology.conf.5"
+
+      additional="\
+      lamssi_boot"
+PARSE "$@"
+###############################################################################
+if [ "$WHERE" == TRUE ]
+then
+   env MANWIDTH=256 man -w $list
+elif [ "$EDIT" == TRUE ]
+then
+   SCRATCH=/tmp/scr_$(uuidgen)
+   export MANWIDTH=80
+   : EDITOR $EDITOR SCRATCH $SCRATCH
+   for NAME in $( echo $list $additional|sed -e 's/\.[0-9]//g')
+   do
+      man $NAME|col -b|sed -e "s/^/$NAME : /"
+   done > $SCRATCH
+   $EDITOR $SCRATCH
+   rm -f $SCRATCH
+elif [ "$PREFIX" == TRUE ]
+   then
+   export MANWIDTH=80
+   for NAME in $( echo $list $additional|sed -e 's/\.[0-9]//g')
+   do
+      man $NAME|col -b|sed -e "s/^/$NAME : /"
+   done
+else
+# list all man-pages
+   export MANWIDTH=256
+   man -k $( echo $list $additional|sed -e 's/\.[0-9]//g')
+   export MANWIDTH=80
+   man $list $additional|col -b
+fi
+###############################################################################
+exit
+###############################################################################
+#
+# scrontab not showing up in this version, but only slurm-wlm 19.05.5
+#
+# recommend to Slurm project to name files with a extension like srun.1Slurm
+# so man-page options like extension work with documentation
+# or at least make sure word 'Slurm' is in all topic lines

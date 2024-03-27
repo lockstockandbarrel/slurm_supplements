@@ -1,0 +1,254 @@
+#!/bin/bash
+#@(#) (STATE-JOB) :W: place Slurm jobs on hold
+###############################################################################
+function VERSION(){
+cat <<\EOF
+PRODUCT:        Slurm tools
+PROGRAM:        s-pause
+DESCRIPTION:    place Slurm jobs on hold
+VERSION:        1.0, 2023-12-29
+AUTHOR:         John S. Urban
+REPORTING BUGS: http://www.urbanjost.altervista.org/
+HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+LICENSE:        MIT
+EOF
+}
+###############################################################################
+source $(dirname $0)/.functions
+OTHER=$*
+if [ "$OTHER" == '' ]
+then
+   squeue --states=STOPPED,SUSPENDED
+else
+   for JOBIDS in $(EXPAND $OTHER)
+   do
+      for JOBID in $(squeue --noheader --job="$JOBIDS" --format=%A)
+         do
+         STATE=$(squeue --noheader --job=$JOBID --format=%T)
+         ACTION=NONE
+         case "$STATE" in
+         ###############################################################################
+         R|RUNNING)      # Job currently has an allocation.
+            scontrol suspend  ${JOBID} # suspend specified running jobs
+            ACTION=suspend
+         ;;
+         CF|CONFIGURING) # Job has been allocated resources, but  are  waiting for them to become ready for use (e.g. booting).
+            scontrol suspend  ${JOBID} # suspend specified running jobs
+            ACTION=suspend
+         ;;
+         PD|PENDING)     # Job is awaiting resource allocation.
+            scontrol hold ${JOBID} # suspend specified pending jobs
+            scontrol uhold ${JOBID} # suspend specified pending jobs
+            ACTION=hold
+         ;;
+         ###############################################################################
+         RF|REQUEUE_FED);;    # Job is being requeued by a federation.
+         RH|REQUEUE_HOLD);;   # Held job is being requeued.
+         RQ|REQUEUED);;       # Completing job is being requeued.
+         SO|STAGE_OUT);;      # Job is staging out files.
+
+         RD|RESV_DEL_HOLD);;  # Job is being held after requested  reservation  was deleted.
+         RS|RESIZING);;       # Job is about to change size.
+         RV|REVOKED);;        # Sibling was removed from cluster due to other cluster starting the job.
+         SI|SIGNALING);;      # Job is being signaled.
+         ST|STOPPED);;   # Job has an allocation, but execution stopped with SIGSTOP signal. CPUS have been retained by this job.
+         S|SUSPENDED);;  # Job  has an allocation, but execution has been suspended and CPUs have been released for other jobs.
+         TO|TIMEOUT);;   # Job terminated upon reaching its time limit.
+         ###############################################################################
+         BF|BOOT_FAIL)
+         # Job terminated due to launch failure, typically due to a hardware failure
+         # (e.g. unable to boot the node or block and the job can not be requeued).
+         ;;
+         CA|CANCELLED)
+         # Job  was explicitly cancelled by the user or system administrator.
+         # The job may or may  not  have  been initiated.
+         ;;
+         CD|COMPLETED);;      # Job  has terminated all processes on all nodes with an exit code of zero.
+         CG|COMPLETING);;     # Job is in the process of completing. Some processes on some nodes may still be active.
+         DL|DEADLINE);;       # Job terminated on deadline.
+         F|FAILED);;          # Job terminated with non-zero  exit  code  or  other failure condition.
+         NF|NODE_FAIL);;      # Job  terminated due to failure of one or more allocated nodes.
+         OOM|OUT_OF_MEMORY);; # Job experienced out of memory error.
+         PR|PREEMPTED);;      # Job terminated due to preemption.
+         SE|SPECIAL_EXIT)
+         # The job was requeued in a special state. This state can be set by
+         # users, typically in EpilogSlurmctld, if the job has terminated with a
+         # particular exit value.
+         ;;
+         esac
+         echo "$JOBID with state $STATE had action $ACTION taken"
+      done
+   done
+fi
+###############################################################################
+exit
+###############################################################################
+# ( exec 2>&1
+# JOBS=353,355,357,359,360,362,371,372,373,374,375,376
+# JOBS='353,355,357,359,360,362,[371-376]'
+# 
+# scontrol update jobid=$JOBS 
+# scontrol update JobId=$JOBS nice=10 priority=111 
+# sudo scontrol  update JobId=$JOBS nice=-100 
+# 
+# scontrol show jobs |tee a.1
+# echo '>>>>>>>>>>>> startime+=30days'
+# scontrol update JobId=$JOBS StartTime=now+30days
+# scontrol show jobs |tee a.2
+# diff a.1 a.2 |tee a.1.2
+# scontrol update JobId=$JOBS StartTime=now
+# scontrol show jobs |tee a.2b
+# diff a.2 a.2b |tee a.2.2b
+# 
+# echo '>>>>>>>>>>>> uhold'
+# scontrol uhold $JOBS
+# scontrol show jobs |tee a.3
+# diff a.2 a.3 |tee a.2.3
+# #> NO DIFFERENT 
+# 
+# scontrol release $JOBS
+# scontrol show jobs |tee a.4
+# diff a.3 a.4 |tee a.3.4
+# #<    Priority=0 Nice=10 Account=(null) QOS=(null)
+# #<    JobState=PENDING Reason=JobHeldUser Dependency=(null)
+# #---
+# #>    Priority=4294901738 Nice=10 Account=(null) QOS=(null)
+# #>    JobState=PENDING Reason=None Dependency=(null)
+# 
+# ) |tee out.log
+# exit
+# ###########################################################
+# What happens if the new starttime is greater than the endtime?
+# ###########################################################
+# 
+# <    StartTime=2024-03-25T17:08:13 EndTime=Unknown Deadline=N/A
+# >    StartTime=2024-03-25T17:09:29 EndTime=Unknown Deadline=N/A
+# 
+# <    EligibleTime=2024-03-25T17:08:13
+# >    EligibleTime=2024-03-25T17:09:29
+# 
+#    Priority=0 Nice=0 
+# ###########################################################
+# From FAQ:
+# 
+# 21. How can I temporarily prevent a job from running (e.g. place it into a hold state)?
+# 
+# The easiest way to do this is to change a job's earliest begin time
+# (optionally set at job submit time using the --begin option). The example
+# below places a job into hold state (preventing its initiation for 30 days)
+# and later permitting it to start now.
+# 
+#     <METHOD I>
+#     $ scontrol update JobId=1234 StartTime=now+30days
+#       ... later ...
+#     $ scontrol update JobId=1234 StartTime=now
+# 
+# Note: Empirically in METHOD I the JobId can be a <job_list> , which I
+# initially thought required single JobIDs.
+# 
+# So METHOD I is best because it avoids changing PRIORITY values and
+# not restoring them to previous values?  Because I now wonder what is
+# undesirable about the method I considered both the most intuitive and
+# best: using the scontrol(1) subcommands hold/uhold/release.
+# 
+#     <METHOD II>
+#     $ scontrol hold <job_list>  # advantage to administrator as user cannot change
+#     $ scontrol uhold <job_list>
+#     $ scontrol release <job_list>
+# 
+# Examples:
+#     $ scontrol uhold jobname=JOB_NAME   
+#     $ scontrol uhold '[100-200],300,500'
+# 
+# Using uhold the "Reason" changes to something easily identifying the
+# job is being held, as "Reason=None" became "Reason=JobHeldUser which
+# seems better.
+# 
+# The downside might be PRIORITY changed to zero and then went to a
+# very large value.
+# 
+# Another method appears to be that setting PRIORITY to zero also 
+# places jobs in hold.
+# 
+#     # METHOD III
+#     $ scontrol jobid=100 Priority=0
+#     # scontrol jobid=100 release
+#     $ scontrol jobid=100 Priority=    # release; could set value
+# 
+# # Once lowered, user can not raise, but if you do a release it puts the
+# PRIORITY to a very high value which can then be lowered to a desired
+# value. Is this a bug or a feature? 
+# 
+# Either way, 
+# # Maybe losses nice and priority value, so hard to restore?
+# 
+# 
+# scontrol :        hold <job_list>
+# scontrol : 	      Prevent a pending job from being started (sets its  priority  to
+# scontrol : 	      0).   Use the release command to permit the job to be scheduled.
+# scontrol : 	      The job_list argument is a comma separated list of  job  IDs  OR
+# scontrol : 	      "jobname="  with	the job's name, which will attempt to hold all
+# scontrol : 	      jobs having that name.  Note that when a job is held by a system
+# scontrol : 	      administrator  using the hold command, only a system administra   
+# scontrol : 	      tor may release the job for execution (also see the  uhold  com   
+# scontrol : 	      mand).  When  the  job  is held by its owner, it may also be re   
+# scontrol : 	      leased by the job's owner.  Additionally, attempting to  hold  a
+# scontrol : 	      running job will have not suspend or cancel it. But, it will set
+# scontrol : 	      the job priority to 0 and update the  job  reason  field,  which
+# scontrol : 	      would hold the job if it was requeued at a later time.
+# scontrol : 
+# scontrol :        uhold <job_list>
+# scontrol : 	      Prevent a pending job from being started (sets its  priority  to
+# scontrol : 	      0).   The job_list argument is a space separated list of job IDs
+# scontrol : 	      or job names.  Use the release command to permit the job	to  be
+# scontrol : 	      scheduled.   This command is designed for a system administrator
+# scontrol : 	      to hold a job so that the job owner may release it  rather  than
+# scontrol : 	      requiring  the  intervention of a system administrator (also see
+# scontrol : 	      the hold command).
+# scontrol : 
+# scontrol :        release <job_list>
+# scontrol : 	      Release  a previously held job to begin execution.  The job_list
+# scontrol : 	      argument is a comma separated list of job IDs OR "jobname=" with
+# scontrol : 	      the  job's name, which will attempt to {hold=>release} all jobs having that
+# scontrol : 	      name.  Also see hold.
+# scontrol : 
+# scontrol :        requeuehold [<option>] <job_list>
+# scontrol : 	      Requeue  a  running,  suspended or finished Slurm batch job into
+# scontrol : 	      pending state, moreover the job is put in held  state  (priority
+# scontrol : 	      zero).   The  job_list argument is a comma separated list of job
+# scontrol : 	      IDs.  A held job can be released using  scontrol	to  reset  its
+# scontrol : 	      priority	(e.g.	"scontrol  release <job_id>"). The command ac   
+# scontrol : 	      cepts the following options:
+# scontrol : 
+# scontrol : 	      Incomplete
+# scontrol : 		     Operate only on jobs (or tasks of a job array) which have
+# scontrol : 		     not  completed.   Specifically only jobs in the following
+# scontrol : 		     states will be requeued: CONFIGURING, RUNNING, STOPPED or
+# scontrol : 		     SUSPENDED.
+# scontrol : 
+# scontrol : 	      State=SpecialExit
+# scontrol : 		     The  "SpecialExit"  keyword specifies that the job has to
+# scontrol : 		     be put in a special state JOB_SPECIAL_EXIT.   The	"scon   
+# scontrol : 		     trol  show job" command will display the JobState as SPE   
+# scontrol : 		     CIAL_EXIT, while the "squeue" command as SE.
+# scontrol : 
+# scontrol :        Priority=<number>
+# scontrol : 	      Set  the job's priority to the specified value.  Note that a job
+# scontrol : 	      priority of zero prevents the job from ever being scheduled.  By
+# scontrol : 	      setting  a  job's priority to zero it is held.  Set the priority
+# scontrol : 	      to a non-zero value to permit it to run.	Explicitly  setting  a
+# scontrol : 	      job's  priority clears any previously set nice value and removes
+# scontrol : 	      the priority/multifactor plugin's ability to manage a job's pri   
+# scontrol : 	      ority.   In  order  to restore the priority/multifactor plugin's
+# scontrol : 	      ability to manage a job's priority, hold and  then  release  the
+# scontrol : 	      job.   Only  the	Slurm administrator or root can increase job's
+# scontrol : 	      priority.
+# scontrol : 
+# scontrol : 	      NO_HOLD_JOBS_AFTER
+# scontrol : 			    By default, when a reservation ends  the  reserva   
+# scontrol : 			    tion request will be removed from any pending jobs
+# scontrol : 			    submitted to the reservation and will be put  into
+# scontrol : 			    a  held state.  Use this flag to let jobs run out   
+# scontrol : 			    side of the reservation after the  reservation  is
+# scontrol : 			    gone. Flag removal with '-=' is not supported.
+# scontrol : 

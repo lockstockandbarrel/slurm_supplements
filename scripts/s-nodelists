@@ -1,0 +1,501 @@
+#!/bin/bash
+################################################################################
+#@(#) (INFO-NODES) :W: list node information using various groupings
+################################################################################
+function LIST(){
+# status of each node
+sinfo -N -r -l
+}
+################################################################################
+function LOAD(){
+# status of each node concentrating on load
+#-------------------------------------------------------------------------------
+sinfo --format '|%n|%O|%C|%e|%m|%d|%T|%G|%f|%E'|sed -e 's/(null)/ - /'|column -t -s '|'
+echo ' Keys:'
+echo '    A/I/O/T ==> Allocated/Idle/Other/Total'
+#-------------------------------------------------------------------------------
+#echo '    S:C:T   ==> Sockets:Cores:Threads'
+# %n      HOSTNAMES
+# %O      CPU_LOAD
+# %C      CPUS(A/I/O/T)
+# %e      FREE_MEM
+# %m      MEMORY
+# %d      TMP_DISK
+# %T      STATE
+# %G      GRES
+# %f      AVAIL_FEATURES
+# %E      REASON
+#
+# %a      AVAIL
+# %A      NODES(A/I)
+# %b      ACTIVE_FEATURES
+# %B      MAX_CPUS_PER_NODE
+# %c      CPUS
+# %D      NODES
+# %F      NODES(A/I/O/T)
+# %g      GROUPS
+# %h      OVERSUBSCRIBE
+# %H      TIMESTAMP
+# %I      PRIO_JOB_FACTOR
+# %l      TIMELIMIT
+# %L      DEFAULTTIME
+# %M      PREEMPT_MODE
+# %N      NODELIST
+# %o      NODE_ADDR
+# %p      PRIO_TIER
+# %P      PARTITION
+# %r      ROOT
+# %R      PARTITION
+# %s      JOB_SIZE
+# %S      ALLOCNODES
+# %t      STATE
+# %u      USER
+# %U      USER
+# %v      VERSION
+# %V      CLUSTER
+# %w      WEIGHT
+# %X      SOCKETS
+# %Y      CORES
+# %z      S:C:T
+# %Z      THREADS
+}
+################################################################################
+function PARAMETERS(){
+# show output of "scontrol show node=$NODENAMES"
+# scontrol(1) defaults to all nodes but otherwise only does one node per request
+# so if nodes are specified call each one individually
+OPTIONS="$@"
+if [ "$NODENAMES" = '' ]
+then
+    scontrol $OPTIONS show node
+else
+    for NODE in $(IFS=', '; echo $NODENAMES)
+    do
+       scontrol $OPTIONS show node "$NODE" | ${COMMAND:-cat}
+    done
+fi
+}
+################################################################################
+function SHOW(){
+# show all output of sinfo
+    sinfo --format %all  $NODENAMES
+}
+################################################################################
+function BADNODES(){
+#       Report only down, drained and draining nodes and their reason field:
+#
+#           $ sinfo -R
+
+#           >  REASON                              NODELIST
+#           >  Memory errors                       dev[0,5]
+#           >  Not Responding                      dev8
+
+#  sinfo --list-reasons         # "%20E %9u %19H %N"
+#  sinfo --long --list-reasons  # "%20E %12U %19H %6t %N"
+
+#   -R, --list-reasons
+#       List reasons nodes are in the down,  drained,  fail  or  failing
+#       state.  When nodes are in these states Slurm supports the inclusion
+#       of a "reason" string by an administrator.  This option will
+#       display  the first 20 characters of the reason field and list of
+#       nodes with that reason for all nodes that are, by default, down,
+#       drained,  draining  or  failing.   This  option may be used with
+#       other node filtering options (e.g. -r,  -d,  -t,  -n),  however,
+#       combinations  of  these  options  that result in a list of nodes
+#       that are not down or drained or failing  will  not  produce  any
+#       output.   When used with -l the output additionally includes the
+#       current node state.
+#
+sinfo --state='unknown,down,allocated,?,drain,drained,draining,no_respond,powering_down,power_down,power_up,fail,maint,reboot'\
+ --format "| %n | %T | %C | %E | %U | %H"|
+ sed -e 's@CPUS(A/I/O/T)@ CPUS(|Alloc|Idle|Other|Total|)@'|
+ sed -e 's@[ |][0-9][0-9]*/@|&@' -e 's@/@|@' -e 's@/@|@' -e 's@/[0-9][0-9]* @|&|@' -e 's@/@ @'|
+ column -t -s '|'
+# column -t -s '|' -n
+# HOSTNAMES    STATE    CPUS(A/I/O/T)    REASON    USER       TIMESTAMP
+# mercury      idle     0/4/0/4          none      Unknown    Unknown
+}
+################################################################################
+function CURRENT(){
+# Print node status for current node
+
+# Use default time format:
+unset SLURM_TIME_FORMAT
+
+for NODE in $(EXPAND ${*:-$(hostname)})
+do
+   (
+   [ "$*" == '' ] && (MESSAGE "slurmd version";slurmd -V;MESSAGE "slurmd status"; scontrol show slurmd)
+   MESSAGE "Node usage per queue for ${NODE}:"
+   sinfo -N --long -n $NODE | tail -n +2
+
+   if [[ "$?" == 0 ]] # Check if squeue returned without error
+   then
+      MESSAGE 'Node configuration:'
+      scontrol show node $*
+   fi
+
+   MESSAGE 'Jobs on node:'
+   squeue --Format JobID:10,NumNodes:6,Partition:15,UserName:12,StartTime,EndTime -w $NODE
+
+   ) |sed -e "s/^/$NODE :/"
+done
+}
+################################################################################
+function ABBREVIATION_LIST(){
+cat <<\EOF
+current
+badnodes
+jobson
+dump
+show
+parameters
+load
+list
+HARDWARE
+RESOURCES
+EOF
+}
+################################################################################
+function ABBREVIATION(){
+WORD=${1:-dropthrough}
+WORD=$(ABBREVIATION_LIST|grep "^$WORD.*"|head -n 1)
+}
+################################################################################
+# list the jobs on specified Slurm nodes by node
+###############################################################################
+function JOBSON_PARSE(){
+# Note that we use "$@" to let each command-line parameter expand to a separate word.
+# The quotes around "$@" are essential!
+# We need TEMP as the 'eval set --' would nuke the return value of getopt.
+TEMP=$(getopt -o 'hvuab:c::' --long 'help,version,usage,a-long,b-long:,c-long::' -n "jobson" -- "$@")
+
+if [ $? -ne 0 ]; then
+        echo 'Terminating...' >&2
+        exit 1
+fi
+
+# Note the quotes around "$TEMP": they are essential!
+eval set -- "$TEMP"
+unset TEMP
+
+while true; do
+        case "$1" in
+                '-h'|'--help')    shift;    JOBSON_HELP;    exit ;;
+                '-v'|'--version') shift;    JOBSON_VERSION; exit ;;
+                '-u'|'--usage')   shift;    JOBSON_USAGE  ; exit ;;
+                '-a'|'--a-long')  shift
+                        echo 'Option a'
+                        continue
+                ;;
+                '-b'|'--b-long')  shift 2
+                        echo "Option b, argument '$2'"
+                        continue
+                ;;
+                '-c'|'--c-long')
+                        # c has an optional argument. As we are in quoted mode,
+                        # an empty parameter will be generated if its optional
+                        # argument is not found.
+                        case "$2" in
+                                '')
+                                        echo 'Option c, no argument'
+                                ;;
+                                *)
+                                        echo "Option c, argument '$2'"
+                                ;;
+                        esac
+                        shift 2
+                        continue
+                ;;
+                '--')
+                        shift
+                        break
+                ;;
+                *)
+                        echo 'Internal error!' >&2
+                        exit 1
+                ;;
+        esac
+done
+
+# Remaining arguments:
+OTHER=''
+for arg; do
+        OTHER="$OTHER $arg"
+done
+}
+###############################################################################
+function JOBSON_HELP(){
+TTY=${TTY:-$(tty --silent||echo FALSE && echo TRUE)}
+HELPCAT <<\EOF
+NAME
+    s-nodelists jobson(1) - list Slurm jobs on the specified nodes
+
+SYNOPSIS
+    s-nodelists jobson hostlist | [--help|--version]
+
+DESCRIPTION
+   The jobson(1) subcommand of s-nodelists(1) displays information about
+   Slurm jobs located on the specified nodes, using "squeue -w HOSTLIST".
+
+   It defaults to the current node.
+
+OPTIONS
+   hostlist   comma-separated list of hosts. Defaults to the current node.
+
+   --help     display this help and exit
+   --version  output version information and exit
+
+EXAMPLES
+Common usage:
+
+      s-nodelists jobson # list jobs on current host
+
+      s nod jobs 'cluster[001-100]' # on nodes cluster001 to cluster100
+
+SEE ALSO
+   squeue(1), scontrol(1), sinfo(1)
+EOF
+}
+###############################################################################
+function JOBSON_USAGE(){
+MESSAGE 's-nodelists jobson  hostlist | [--help|--version]'
+cat <<\EOF
+options:
+
+     hostlist   comma-separated list of hostnames
+     --help     display this help and exit
+     --version  output version information and exit
+EOF
+}
+###############################################################################
+function JOBSON_VERSION(){
+cat <<\EOF
+PRODUCT:        Slurm tools
+PROGRAM:        s-nodelists jobson
+DESCRIPTION:    list jobs on specified Slurm nodes
+VERSION:        1.0, 2023-12-05
+AUTHOR:         John S. Urban
+REPORTING BUGS: http://www.urbanjost.altervista.org/
+HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+LICENSE:        MIT
+EOF
+}
+###############################################################################
+function JOBSON(){
+# main jobson
+JOBSON_PARSE $*
+for NAME in ${OTHER:-localhost}
+do
+   squeue -w $NAME
+done
+}
+################################################################################
+function NODENAMES(){
+# assume rest is nodenames . Default is all nodenames
+export NODENAMES=${*:-$(NODELIST|xargs)}
+# make node names into a comma-separated list for Slurm commands
+export NODENAMES=$(EXPAND_TO_LIST $NODENAMES)
+}
+################################################################################
+#
+# main
+#
+source $(dirname $0)/.functions
+# parse command line
+# s-nodelists word [nodeIDs]
+ABBREVIATION $*
+shift 1
+# common preprocessing
+case "${WORD,,}" in
+parameters)  NODENAMES     ;;
+show)        NODENAMES     ;;
+dump)        NODENAMES     ;;
+resources)   NODENAMES     ;;
+esac
+################################################################################
+case "${WORD,,}" in
+parameters)  PARAMETERS              ;;
+show)        SHOW                    ;;
+dump)        PARAMETERS  --oneliner  ;;
+resources)   RESOURCES               ;;
+load)        LOAD|PAGER              ;;
+list)        LIST|PAGER              ;;
+jobson)      JOBSON "$@"|PAGER       ;;
+current)     CURRENT                 ;;
+badnodes)    BADNODES "$@"|PAGER     ;;
+default*|*)
+(
+MESSAGE $0: favorite node listings
+cat <<EOF
+SYNOPSIS
+    s-nodelists keyword [jobIDs]
+DESCRIPTION
+   Generate node listings emphasizing particular aspects of the job
+   information.
+OPTIONS
+Keywords (abbreviations are allowed):
+    +-------------+-----------------------------------------------------
+    + keyword     + selects type of node description. Allowed values are
+    +-------------+-----------------------------------------------------
+    + current     + query current node
+    + badnodes    + list down, drained, or draining nodes
+    + jobson      + list jobs on specified nodes. Default to current node
+    + list        +
+    + load        +
+    + parameters  + dump all node parameters using scontrol(1)
+    +-------------+-----------------------------------------------------
+    Special oneliners particularly useful for searching and selecting:
+    +-------------+-----------------------------------------------------
+    + dump        + dump all parameters per scontrol(1), one node per line
+    + show        + dump all parameters per sinfo(1), one node per line
+    +-------------+-----------------------------------------------------
+
+EXAMPLE
+
+    # show Slurm information about current node
+    s-nodelists current
+
+    # dump all Slurm parameter information about specified nodes
+    s-nodelists par '[100-104],110'
+
+    # using abbreviator
+    s n d  # ==> Slurm nodes badnodes
+EOF
+)|PAGER
+;;
+esac
+################################################################################
+exit
+################################################################################
+Hardware
+   NodeName=mercury
+   CPUTot=4
+   Boards=1
+   Sockets=1
+   CoresPerSocket=4
+   ThreadsPerCore=1
+   RealMemory=3600
+   AllocMem=3600
+   TmpDisk=5000
+   CurrentWatts=0
+   AveWatts=0
+   CapWatts=n/a
+   ExtSensorsJoules=n/s
+   ExtSensorsWatts=0
+   ExtSensorsTemp=n/s
+Features
+   Gres=(null)
+   ActiveFeatures=(null)
+   AvailableFeatures=(null)
+Configuration
+   CfgTRES=cpu=4,mem=3600M,billing=4
+   Partitions=debug,production,express
+   Weight=1
+   Owner=N/A
+   MCS_label=N/A
+OS
+   NodeAddr=mercury
+   NodeHostName=mercury
+   BootTime=2024-01-28T14:48:04
+   Arch=x86_6
+   OS=Linux 5.4.0-169-generic #187-Ubuntu SMP Thu Nov 23 14:52:28 UTC 2023
+Usage
+   CPUAlloc=1
+   CPULoad=0.32
+   FreeMem=269
+   State=MIXED
+   AllocTRES=cpu=1,mem=3600M
+Slurm Configuration
+   SlurmdStartTime=2024-02-06T17:24:11
+   Version=19.05.5
+###############################################################################
+HOSTNAMES  CPU_LOAD  CPUS(A/I/O/T)  FREE_MEM  MEMORY  TMP_DISK  STATE  S:C:T  ACTIVE_FEATURES  AVAIL_FEATURES  mercury  mercury
+mercury    0.26      1/3/0/4        363       3600    5000      mixed  1:4:1  (null)           (null)          mercury  mercury
+###############################################################################
+sinfo default                # "%#P %.5a %.10l %.6D %.6t %N"
+sinfo --summarize            # "%#P %.5a %.10l %.16F  %N"
+sinfo --long                 # "%#P %.5a %.10l %.10s %.4r %.8h %.10g %.6D  %.11T %.11i %N"
+sinfo --Node                 # "%#N %.6D %#P %6t"
+sinfo --long --Node          # "%#N %.6D %#P %.11T %.4c %.8z %.6m %.8d %.6w %.8f %20E"
+###############################################################################
+for NAME in $(sinfo --format='%n' --noheader)
+do
+   sinfo --nodes=$NAME
+   # !%n    List of node hostnames.
+   # !%O    CPU load of a node as reported by the OS.
+   # !%c    Number of CPUs per node.
+   # !%e    The total memory, in MB, currently free on the node as reported by the OS.
+   # !%m    Size of memory per node in megabytes.
+   # !%d    Size of temporary disk space per node in megabytes.
+   # !%T    State of nodes, extended form.
+   # !%z    Extended processor information: number of sockets,  cores, threads (S:C:T) per node.
+done
+###############################################################################
+state and reasons
+              %T    State of nodes, extended form.
+              %E    The reason a node is unavailable (down, drained, or draining states).
+              %H    Print the timestamp of the reason a node is unavailable.
+              %u    Print the user name of who set the reason a  node  is  unavailable.
+              %U    Print  the  user name and uid of who set the reason a node is unavailable.
+all
+              %all  Print  all fields available for this data type with a vertical bar separating each field.
+
+              %i    If a node is in an advanced reservation print the name  of that reservation.
+              %M    PreemptionMode.
+              %w    Scheduling weight of the nodes.
+hardware
+              %c    Number of cores
+              %X    Number of sockets per node.
+              %Y    Number of cores per socket.
+              %Z    Number of threads per core.
+################################################################################
+function FILES(){
+# list job files associated with Slurm jobs
+(
+echo 'JobId | JobName | UserId | Command | WorkDir | StdErr | StdIn | StdOut'
+for JOBID in $(IFS=', ';echo $NODENAMES)
+do
+   # ASSUMING scontrol show output is stable and no special characters in names
+   eval declare -x $(scontrol show node $JOBID |egrep \
+      -e  '^  *Command='  \
+      -e  '^ *JobId='    \
+      -e  '^  *JobName='  \
+      -e  '^  *StdErr='   \
+      -e  '^  *StdIn='    \
+      -e  '^  *StdOut='   \
+      -e  '^  *UserId='   \
+      -e  '^  *WorkDir='  |
+    sed -e 's/ *GroupId=.*//' |
+    sed -e 's/ JobName=/\n JobName=/' |
+    sed -e "s/=/='/" |
+    sed -e "s/$/'/" )
+    # reorder
+    cat <<EOF
+| ${JobId:--} | ${JobName:--} | ${UserId:--} | ${Command:--} | ${WorkDir:--} | ${StdErr:--} | ${StdIn:--} | ${StdOut:--} |
+EOF
+done) | sed -e "s@$HOME/@~/@g" | column -t -s '|'
+}
+################################################################################
+function RESOURCES(){
+UNSET_SQUEUE
+#list job resources
+export SLURM_BITSTR_LEN=0
+export SLURM_TIME_FORMAT=standard
+# resources usage
+# JOBID USER HOST PARTITION REQ_NODES NAME STATE REASON CPUS MEM TMP FEATURES RESERVATION WCKEY TIME LICENSES NODES NODELIST(REASON) DEPENDENCY
+export SQUEUE_FORMAT="%i|%u|%B|%P|%n|%j|%T|%r|%C|%m|%d|%f|%v|%w|%0M|%W|%D|%R|%E" # default -o <output_format>, --format=<output_format>
+squeue --jobs "$NODENAMES" | sed -e 's/EXEC_HOST/HOST/' -e 's/MIN_MEMORY/MEM/' -e 's/MIN_TMP_DISK/TMP/'| column -t -s '|'
+}
+################################################################################
+function TIMES(){
+# list job times
+env -i \
+ SQUEUE_FORMAT="%i %u %j %T | Submitted: %V Start: %S End: %e Limit: %l Remaining: %L" \
+ SLURM_BITSTR_LEN=0 \
+ SLURM_TIME_FORMAT=standard \
+ SLURM_TIME_FORMAT='%Y-%m-%d %H:%M:%S' \
+ SLURM_TIME_FORMAT='%m-%d.%H:%M' \
+ $(which squeue) --noheader --jobs "$NODENAMES" | column -t
+}
+################################################################################

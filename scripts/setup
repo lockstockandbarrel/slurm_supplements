@@ -1,0 +1,45 @@
+#!/bin/bash
+#
+################################################################################
+#@(#) cleanup scratch environment and generate usage report for a Slurm job
+# run at beginning of job or in prologue
+################################################################################
+# consider module(1) command for setting up various environments
+#          epilogue and prologues
+#          sourcing files versus executing commands
+################################################################################
+cat <<\EOF
+Job Name:          $SLURM_JOB_NAME
+Job ID:            $SLURM_JOB_ID
+Cluster:           $SLURM_CLUSTER_NAME
+User/Group:        $SLURM_JOB_USER
+Nodes:             $SLURM_NNODES
+Nodelist:          $SLURM_JOB_NODELIST
+Cores per node:    $SLURM_JOB_CPUS_PER_NODE
+EOF
+ulimit -a
+umask 77
+# make a scratch directory easy to automatically identify and cleanup even after
+# node failure.
+
+# user $TMPDIR instead of /tmp; make NSF or Lustre scratch directory for
+# parallel jobs
+export JOBDIR=/tmp/$(${USER}_${SLURM_JOB_ID}_$(uuidgen)
+export TMPDIR=$JOBID TMP=$JOBID
+# temporary space not accessible by non-privelaged IDs; but might want to assign
+# to a group
+mkdir -p $JOBDIR --mode=700
+chmod og-xrw $JOBDIR
+
+# Optionally reduce chance of file collisions or excessive access and make batch
+# jobs more self-contained by shifting to local unique home directory
+export HOME=$JOBDIR
+cd
+# Thousands of jobs writing unneeded history information info a common directory
+# can be a performance issue as well as less secure so ensure history is not
+# inadvertently being written, assuming this is sourced into a job.
+set HISTSIZE=0
+uset HISTFILE
+################################################################################
+exit
+################################################################################

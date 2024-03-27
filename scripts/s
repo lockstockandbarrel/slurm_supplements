@@ -1,0 +1,119 @@
+#!/bin/bash
+###############################################################################
+#@(#) :-: master command for Slurm subcommand scripts
+###############################################################################
+function HELP(){
+TTY=${TTY:-$(tty --silent||echo FALSE && echo TRUE)}
+HELPCAT <<\EOF
+NAME
+   s(1) - select or list available custom Slurm scripts
+SYNOPSIS
+
+    s SUBCOMMAND
+
+    s [--help|-h]|[--version|-v]
+
+DESCRIPTION
+   call or list custom s-* commands with subcommand abbreviations allowed.
+
+OPTIONS
+   SUBCOMMAND  if supplied execute said command. Default is to list
+               available commands.
+
+   --help      display this help and exit
+   --version   output version information and exit
+EXAMPLES
+Common usage:
+
+    # list available sub-commands
+    s
+
+    # open partition/queue "production"
+    s par -O production
+
+    # the same command unabbreviated:
+    s-partition --open  production
+
+SEE ALSO
+   + https://slurm.schedmd.com/documentation.html
+EOF
+}
+###############################################################################
+function VERSION(){
+cat <<\EOF
+PRODUCT:        Slurm tools
+PROGRAM:        s(1)
+DESCRIPTION:    master command for Slurm sub-command scripts
+VERSION:        1.0, 2023-12-05
+AUTHOR:         John S. Urban
+REPORTING BUGS: http://www.urbanjost.altervista.org/
+HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+LICENSE:        MIT
+EOF
+}
+###############################################################################
+# main
+#
+export PATH=$(dirname $0)/aliases:$PATH
+source $(dirname $0)/.functions
+unset OTHER
+STANDARDENV
+# minimal parsing to avoid expansion by getopt usage
+for OPTION in $*
+do
+   case "$*" in
+   -h|--help)    HELP;exit;;
+   -v|--version) VERSION;exit;;
+   esac
+done
+###############################################################################
+if [ "$*" = '' ]
+then
+(
+   cd $(dirname $0)
+   echo 'Subcommands(may be abbreviated):'
+   echo
+   grep --with-filename '@(#)' s-*|sed -e 's/##* *@(#)/ /' -e's/^ *s-//'|
+    sort -k 2 -k 1|column -t -s :|sed -e 's/^/   /'
+   echo
+   echo 'Keys: H(--help available) WIP(Work In Progress)'
+   echo
+   cd aliases
+   echo 'Aliases(in optional aliases/ directory):'
+   ls -d *|xargs -n 8|column -t
+   echo 'Enter "s --help" for further details'
+) | TRIM_PAGER
+else
+   #allow abbreviations for subcommands
+   ARGS=( "$@" )
+   case "${ARGS[0]}" in
+   # could do something specific to particular prefixes
+   dr*)    ARGS[0]=drain-cluster;;
+   d*)     ARGS[0]=docs;;
+
+   e*)     ARGS[0]=example ;;
+   ho*)    ARGS[0]=nodes ;;      # hosts equivalent to nodes
+   jobs*)  ARGS[0]=joblists;;    # jobs equivalent to joblists
+   nodes*) ARGS[0]=nodelists;;    # nodes equivalent to nodelists
+
+   # look through filenames for a match
+   *)      cd $(dirname $0)
+           verb=$(echo s-${1}*|awk '{print $1}')
+           if [ ! -x "$verb" ]
+           then
+              echo "$0 :"'match not found for '"$@ for $verb"
+              ls s-* 
+              exit
+           else
+             ARGS[0]=${verb/s-/}
+           fi
+           ;;
+   esac
+   set -- "${ARGS[@]}"
+
+   [ "$DEBUG" == TRUE ] && declare -p ARGS
+   [ "$DEBUG" == TRUE ] && bash -v -x s-${@} || s-${@}
+fi
+###############################################################################
+exit
+###############################################################################

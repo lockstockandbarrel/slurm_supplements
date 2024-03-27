@@ -1,0 +1,192 @@
+#!/bin/bash
+###############################################################################
+#@(#) (INFO-JOB) :W: dump squeue(1) job data into an SQLite3 table
+###############################################################################
+function runit_squeue(){
+REPORT_TYPE=$1
+#
+# Assumes no values have | character in them, which at least comments might
+# Cannot see to get pipe input to work to eliminate scratch file
+#
+# Use --Format values instead of --format (?)
+# double-check label renames
+#
+#sqlite3 --version
+trap '/bin/rm -f $DBNAME.txt' EXIT 0
+
+export DBNAME=/tmp/scr_$(uuidgen)
+rm -f $DBNAME.txt
+squeue --format=%all|
+sed -e '1,1{s/S:C:T/S_C_T/g}'           \
+    -e '1,1{s/(/_/g}'                   \
+    -e '1,1{s/)//g}'                    \
+    -e '1 s/| *|/|UNKNOWN1|/'           \
+    -e '1 s/ *|/|/g'                    \
+    -e '1 s/\<GROUP\>/GroupID/'         \
+    -e '1 s/\<GROUP\>/GroupName/'       \
+    -e '1 s/\<PRIORITY\>/Priority/'     \
+    -e '1 s/\<PRIORITY\>/PriorityLong/' \
+    -e '1 s/\<JOBID\>/JobID/'           \
+    -e '1 s/\<JOBID\>/JobArrayID/' > $DBNAME.txt
+(
+#-------------------------------------------------------------------------------
+# header
+#
+# noexpand
+cat <<\EOF
+-- Import data from stdin into TABLE
+.header on
+.separator "|"
+.mode list
+EOF
+# expand
+cat <<EOF
+.import "$DBNAME.txt" queue
+EOF
+#-------------------------------------------------------------------------------
+$REPORT_TYPE
+#-------------------------------------------------------------------------------
+# footer
+cat <<\EOF
+.quit
+EOF
+) |sqlite3 :memory: |column -t -s '|'
+}
+################################################################################
+function user(){
+cat <<\EOF
+---
+SELECT USER, STATE, COUNT(*) AS 'JOBCOUNT', SUM(CPUS)
+FROM queue GROUP BY USER, STATE
+ORDER BY STATE,SUM(CPUS)
+;
+---
+EOF
+}
+################################################################################
+function nodes(){
+cat <<\EOF
+---
+SELECT HOSTNAMES, NODELIST, NODE_ADDR, AVAIL, S_C_T, CPUS, CPUS_A_I_O_T,
+CPU_LOAD, TMP_DISK, FREE_MEM, MEMORY, NODES_A_I_O_T, REASON, Partition,
+ACTIVE_FEATURES, AVAIL_FEATURES, GROUPS, OVERSUBSCRIBE, PRIO_TIER,
+WEIGHT, GRES, DEFAULTTIME, PREEMPT_MODE
+from cluster;
+---
+EOF
+}
+################################################################################
+function test_squeue(){
+cat <<\EOF
+---
+SELECT * from queue;
+.schema
+---
+EOF
+}
+################################################################################
+function test_sinfo(){
+cat <<\EOF
+---
+SELECT * from cluster;
+.schema
+---
+EOF
+}
+################################################################################
+function runit_sinfo(){
+REPORT_TYPE=$1
+#
+# Assumes no values have | character in them, which at least comments might
+# Cannot see to get pipe input to work to eliminate scratch file
+#
+# double-check label renames
+#
+trap '/bin/rm -f $DBNAME.txt' EXIT 0
+
+export DBNAME=/tmp/scr_$(uuidgen)
+rm -f $DBNAME.txt
+sinfo --Format=All                     |
+sed -e '1,1{s/S:C:T/S_C_T/g}'          \
+    -e '1,1{s/(/_/g}'                  \
+    -e '1,1{s/)//g}'                   \
+    -e '1,1{s@/@_@g}'                  \
+    -e '1 s/STATE/StateCompact/'       \
+    -e '1 s/STATE/StateLong/'          \
+    -e '1 s/STATE/StateComplete/'      \
+    -e '1 s/USER/User/'                \
+    -e '1 s/USER/UserLong/'            \
+    -e '1 s/PARTITION/Partition/'      \
+    -e '1 s/PARTITION/PartitionName/'  \
+    -e '1 s/ *|/|/g'                   \
+    -e '1 s/| *|/|UNKNOWN1|/'   > $DBNAME.txt
+(
+#-------------------------------------------------------------------------------
+# header
+#
+# noexpand
+cat <<\EOF
+-- Import data from stdin into TABLE
+.header on
+.separator "|"
+.mode list
+EOF
+# expand
+cat <<EOF
+.import "$DBNAME.txt" cluster
+EOF
+#-------------------------------------------------------------------------------
+$REPORT_TYPE
+#-------------------------------------------------------------------------------
+# footer
+cat <<\EOF
+.quit
+EOF
+) |sqlite3 :memory: |column -t -s '|' |PAGER
+}
+################################################################################
+#
+# main
+#
+OTHER="$1"
+
+source $(dirname $0)/.functions
+# remove all SQUEUE environment variables; can use env(1) instead
+UNSET_SQUEUE
+STANDARDENV
+
+case "$OTHER" in
+user|users)  export PAGER=TRIM_PAGER; runit_squeue  user         ;;
+node|nodes)                           runit_sinfo   nodes        ;;
+test_sinfo)  export PAGER=cat       ; runit_sinfo   test_sinfo   ;;
+test_squeue) export PAGER=cat       ; runit_squeue  test_squeue  ;;
+*)
+cat <<\EOF
+Examples of dumping squeue(1) or sinfo() data into SQLite3 to generate
+Slurm job reports.
+
+  + $(basename $0) user  # counts of jobs in different states by user
+  + $(basename $0) nodes # node descriptions
+  + $(basename $0) test_sinfo
+  + $(basename $0) test_squeue
+EOF
+;;
+esac;
+exit
+################################################################################
+-- HTML table of queue
+.mode html
+.output a.html
+select * from queue;
+--
+-- .schema queue
+-- .database
+EOF
+)|column -t -s '|'
+rm -f $DBNAME.txt
+exit
+#.save $DBNAME.db
+#rm -f $DBNAME.db
+#sqlite3 :memory: <<\EOF
+#.import "|cat /tmp/x" queue
+#sqlite3 :memory: <<\EOF

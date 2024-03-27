@@ -1,0 +1,395 @@
+#!/bin/bash
+################################################################################
+#@(#) (INFO-JOB) :H: list information on queued jobs grouping  by various data classifications
+################################################################################
+function FILES(){
+# list job files associated with Slurm jobs
+(
+echo 'JobId | JobName | UserId | Command | WorkDir | StdErr | StdIn | StdOut'
+for JOBID in $(IFS=', ';echo $OTHER)
+do
+   # ASSUMING scontrol show output is stable and no special characters in names
+   eval declare -x $(scontrol show --details job $JOBID |sed -e 's/(null)/-/'|egrep \
+      -e  '^  *Command='  \
+      -e  '^ *JobId='    \
+      -e  '^  *JobName='  \
+      -e  '^  *StdErr='   \
+      -e  '^  *StdIn='    \
+      -e  '^  *StdOut='   \
+      -e  '^  *UserId='   \
+      -e  '^  *WorkDir='  |
+    sed -e 's/ *GroupId=.*//' |
+    sed -e 's/ JobName=/\n JobName=/' |
+    sed -e "s/=/='/" |
+    sed -e "s/$/'/" )
+    # reorder
+    UserId=${UserId/(*)}
+    cat <<EOF
+${JobId:--} | ${JobName:--} | ${UserId:--} | ${Command:--} | ${WorkDir:--} | ${StdErr:--} | ${StdIn:--} | ${StdOut:--}
+EOF
+done) | sed -e "s@$HOME/@~/@g" | column -t -s '|'  # change to only if $HOME starts pathname
+}
+################################################################################
+function CONSUMED(){
+#
+# list job resources consumed
+#
+export SLURM_BITSTR_LEN=0
+export SLURM_TIME_FORMAT=standard
+#
+# JOBID USER NAME HOST PARTITION STATE REASON NODES CPUS MEM TMP TIME TIME_LIMIT FEATURES RESERVATION WCKEY LICENSES REQ_NODES LIST(REASON) DEPENDENCY
+# %i    %u   %j   %B   %P        %T    %r     %D    %C   %m  %d  %0M  %l         %f       %v          %w    %W       %D        %n        %R %E
+
+export SQUEUE_FORMAT="%i|%u|%j|%B|%P|%T|%r|%D|%C|%m|%d|%0M|%l|%f|%v|%w|%W|%n|%R|%E" # default -o <output_format>, --format=<output_format>
+squeue --jobs --states=ALL "$OTHER" |
+        sed -e 's/(null)/ -/g'|
+        sed -e 's/EXEC_HOST/HOST/' -e 's/MIN_MEMORY/MEM/' -e 's/MIN_TMP_DISK/TMP/'|
+        column -t -s '|'
+}
+################################################################################
+function PENDING(){
+#
+# list job resources consumed
+#
+export OTHER
+#OTHER=${*}
+[ "$OTHER" != '' ] && OTHER="--jobs $OTHER"
+#   JOBID  USER  NODES CPUS NICE PRIORITY QOS TIME_LIMIT SUBMIT_TIME MEM  TMP  FEATURES  RESERVATION  WCKEY  LICENSES  REQ_NODES DEPENDENCY PARTION NAME REASON
+#    %i    %u    %D    %C   %y   %Q       %q  %l         %V          %m   %d   %f        %v           %w     %W        %n        %E         %P      %j   %r
+(
+export SQUEUE_FORMAT="%i|%u|%D|%C|%y|%Q|%q|%l|%V|%m|%d|%f|%v|%w|%W|%n|%P|%j|%E|%r" # default -o <output_format>, --format=<output_format>
+DECLARE_CONFIG SLURM_VERSION
+IFS=. read MAJOR MINOR MINNOW OTHERSTUFF <<<$SLURM_VERSION
+
+(
+# avoid bug but does not list jobs with state=RESV_DEL_HOLD.
+if [ "$MAJOR" -ge 20 -a "$MINOR" -ge 11 -a "$MINNOW" -ge 6 ]
+then
+   STATE='PENDING,REQUEUE_FED,REQUEUE_HOLD,REQUEUED,SPECIAL_EXIT,RESV_DEL_HOLD,SIGNALING'
+else
+   STATE='PENDING,REQUEUE_FED,REQUEUE_HOLD,REQUEUED,SPECIAL_EXIT,SIGNALING'
+   squeue --noheader |grep -i 'reservation.*was deleted'
+fi
+
+squeue --state=$STATE $OTHER )|
+       sed -e 's/(null)/ -/g'| 
+       sed -e 's/EXEC_HOST/HOST/' -e 's/MIN_MEMORY/MEM/' -e 's/MIN_TMP_DISK/TMP/'| column -t -s '|'
+)|sort -k 1n|uniq
+}
+################################################################################
+function RUNNING(){
+#
+# list job resources pertinent for a running job
+#
+# OTHER is a comma-separated list job jobnumbers or a null string
+[ "$OTHER" != '' ] && OTHER="--jobs $OTHER"
+export SQUEUE_FORMAT="%i|%u|%P|%j|%a|%B|%D|%z|%m|%d|%T|%M|%e|%v|%w|%g|%o|%Z|%R|"
+squeue --state=RUNNING,STOPPED,STAGE_OUT,SUSPENDED,COMPLETING,RESIZING,CONFIGURING,SIGNALING $OTHER |
+       sed -e 's/(null)/ -/g' |
+       sed -e 's/EXEC_HOST/HOST/' -e 's/MIN_MEMORY/MEM/' -e 's/MIN_TMP_DISK/TMP/' |
+       column -t -s '|'
+}
+################################################################################
+function ENDED(){
+#
+# list job resources pertinent for a running job
+#
+# OTHER is a comma-separated list job jobnumbers or a null string
+[ "$OTHER" != '' ] && OTHER="--jobs $OTHER"
+export SQUEUE_FORMAT="%i|%u|%P|%j|%a|%B|%D|%z|%m|%d|%T|%M|%e|%v|%w|%g|%o|%Z|%R|"
+squeue --state=BOOT_FAIL,CANCELLED,COMPLETED,DEADLINE,FAILED,NODE_FAIL,OUT_OF_MEMORY,TIMEOUT,PREEMPTED,REVOKED $OTHER |
+       sed -e 's/(null)/ -/g' |
+       sed -e 's/EXEC_HOST/HOST/' -e 's/MIN_MEMORY/MEM/' -e 's/MIN_TMP_DISK/TMP/' |
+       column -t -s '|'
+}
+################################################################################
+function STARTTIME(){
+#
+# list start time estimates using squeue(1) --start
+#
+export SLURM_BITSTR_LEN=0
+export SLURM_TIME_FORMAT=standard
+#
+squeue --states=ALL --start
+}
+################################################################################
+function ALLSQUEUE(){
+#all squeue data one line per job
+export SLURM_BITSTR_LEN=0
+(
+squeue --jobs --states=ALL --format %all "$OTHER"
+)
+}
+# scontrol :        BatchFlag
+# scontrol :          Jobs submitted using the sbatch command have BatchFlag set to 1.
+# scontrol :          Jobs submitted using other commands have BatchFlag set to 0.
+################################################################################
+function ALLSQUEUE_KEYWORDS(){
+#all squeue data one line per job
+FORMAT='Account:|,AccrueTime:|,admin_comment:|,AllocNodes:|,AllocSID:|,ArrayJobID:|,ArrayTaskID:|,AssocID:|,BatchFlag:|,BatchHost:|,BoardsPerNode:|,BurstBuffer:|,BurstBufferState:|,Cluster:|,ClusterFeature:|,Command:|,Comment:|,Container:|,ContainerID:|,Contiguous:|,Cores:|,CoreSpec:|,CPUFreq:|,cpus-per-task:|,cpus-per-tres:|,Deadline:|,DelayBoot:|,Dependency:|,DerivedEC:|,EligibleTime:|,EndTime:|,exit_code:|,Feature:|,GroupID:|,GroupName:|,HetJobID:|,HetJobIDSet:|,HetJobOffset:|,JobArrayID:|,JobID:|,LastSchedEval:|,Licenses:|,MaxCPUs:|,MaxNodes:|,MCSLabel:|,mem-per-tres:|,MinCpus:|,MinMemory:|,MinTime:|,MinTmpDisk:|,Name:|,Network:|,Nice:|,NodeList:|,Nodes:|,NTPerBoard:|,NTPerCore:|,NTPerNode:|,NTPerSocket:|,NumCPUs:|,NumNodes:|,NumTasks:|,Origin:|,OriginRaw:|,OverSubscribe:|,Partition:|,PendingTime:|,PreemptTime:|,Prefer:|,Priority:|,PriorityLong:|,Profile:|,QOS:|,Reason:|,ReasonList:|,Reboot:|,ReqNodes:|,ReqSwitch:|,Requeue:|,Reservation:|,ResizeTime:|,RestartCnt:|,ResvPort:|,SchedNodes:|,SCT:|,SiblingsActive:|,SiblingsActiveRaw:|,SiblingsViable:|,SiblingsViableRaw:|,Sockets:|,SPerBoard:|,StartTime:|,State:|,StateCompact:|,STDERR:|,STDIN:|,STDOUT:|,StepID:|,StepName:|,StepState:|,SubmitTime:|,system_comment:|,Threads:|,TimeLeft:|,TimeLimit:|,TimeUsed:|,tres-alloc:|,tres-bind:|,tres-freq:|,tres-per-job:|,tres-per-node:|,tres-per-socket:|,tres-per-step:|,tres-per-task:|,UserID:|,UserName:|,Wait4Switch:|,WCKey:|,WorkDir'
+squeue --jobs --states=ALL --format="$FORMAT" "$OTHER"
+}
+################################################################################
+function TIMES(){
+# list job times
+env -i \
+ SQUEUE_FORMAT="%i %u %j %T | Submitted: %V Start: %S End: %e Limit: %l Remaining: %L" \
+ SLURM_BITSTR_LEN=0 \
+ $(which squeue) --states=ALL --noheader --jobs "$OTHER" | column -t
+}
+################################################################################
+function LIST(){
+[ "$OTHER" != '' ] && OTHER="--jobs $OTHER"
+if [ "$VERBOSE" = TRUE ]
+then
+   SQUEUE_FORMAT="A)%A|u)%u|P)%P|a)%a|g)%g|j)%j|D)%D|C)%C|c)%c|z)%z|H)%H|I)%I|J)%J|B)%B|N)%N|x)%x|n)%n|Y)%Y|X)%X|d)%d|m)%m|V)%V|S)%S|e)%e|M)%M|l)%l|L)%L|T)%T|q)%q|Q)%Q|p)%p|y)%y|r)%r|v)%v|E)%E|W)%W|f)%f|O)%O|h)%h|w)%w|o)%o|Z)%Z|k)%k|"
+else
+   SQUEUE_FORMAT="%A|%u|%P|%a|%g|%j|%D|%C|%c|%z|%H|%I|%J|%B|%N|%x|%n|%Y|%X|%d|%m|%V|%S|%e|%M|%l|%L|%T|%q|%Q|%p|%y|%r|%v|%E|%W|%f|%O|%h|%w|%o|%Z|%k|"
+fi
+env -i SQUEUE_FORMAT="$SQUEUE_FORMAT" SLURM_BITSTR_LEN=0 $EXE squeue $OTHER | column -t -s '|'
+}
+################################################################################
+function PRIORITY(){
+(
+   [ "$OTHER" != '' ] && OTHER="--jobs $OTHER"
+   declare -x $(scontrol show config|grep -i '^PriorityType'|tr -d ' ')
+   case "$PriorityType" in
+   *Multi*)
+      export SPRIO_FORMAT='%i|%u|%o|%Y|%n|%N|%r|%a|%A|%b|%B|%f|%F|%j|%J|%p|%P|%q|%Q|%S|%t|%T|%y'
+      sprio $OTHER|column -t -s'|'
+   ;;
+   *)  
+      export SQUEUE_FORMAT='%i|%u|%Y|%n|%N|%r|%a|%A|%p|%q|%Q|%r|%S|%T|%v|%W|%y'
+      squeue $OTHER|column -t -s'|'
+   ;;
+   esac
+)
+}
+################################################################################
+function DUMP(){
+# scontrol show --details jobid=$OTHER
+# scontrol(1) defaults to all jobs but otherwise only does one job per request
+# so if jobIds are specified call one per ID
+OPTIONS="$@"
+if [ "$OTHER" = '' ]
+then
+   scontrol show job --details $OPTIONS
+else
+   for JOBID in $(IFS=', '; echo ${OTHER:-$(EXPAND_JOBLIST .)})
+   do 
+      scontrol show --details job "$JOBID" $OPTIONS
+   done
+fi
+}
+################################################################################
+# (INFO-JOB) :W: formatted table of sstat(1) information for running jobs
+# The sstat command requires that the jobacct_gather plugin be installed and operational.
+# this command can be used at the end of a job to generate a usage log
+# calls sstat(1) many times. 
+################################################################################
+function SHOW_SSTAT(){
+KEYWORD="$1"
+sstat --jobs=$JOBID --noheader --format="${KEYWORD}"
+}
+################################################################################
+function JOBLOAD(){
+# show load of nodes used by a job
+#OTHER="$*"
+for JOBID in $(tr ',' ' ' <<<$OTHER)
+do
+   HOSTS=$(squeue --jobs=$JOBID --noheader --format='%n %N'|xargs -n 1|sort|uniq|xargs)
+   sinfo -n "$HOSTS" --format '%n %O %e %m %T %E %H'|column -t
+   # %N    List of node names
+   # %n    List of node hostnames
+   # %O    CPU load of a node
+   # %e    Free memory of a node
+   # %m    Size of memory per node in megabytes
+   # %T    State of nodes, extended form
+   # %E    The reason a node is unavailable (down, drained, or draining states).
+   # %H    Print the timestamp of the reason a node is unavailable.
+   #
+   # missing: paging rate, uptime process demand, temp space remaining, ...
+done
+}
+################################################################################
+function STAT(){
+export JOBID
+JOBS="${*:-${SLURM_JOB_ID}}"
+for JOBID in ${JOBS}
+do
+if [ "$JOBID" != '' ]
+then
+cat <<EOF
+Average (system + user) CPU time of all tasks in job........ $(SHOW_SSTAT AveCPU)
+Average weighted CPU frequency of all tasks in job, in kHz.. $(SHOW_SSTAT AveCPUFreq)
+Average number of bytes read by all tasks in job............ $(SHOW_SSTAT AveDiskRead)
+Average number of bytes written by all tasks in job......... $(SHOW_SSTAT AveDiskWrite)
+Average number of page faults of all tasks in job........... $(SHOW_SSTAT AvePages)
+Average resident set size of all tasks in job............... $(SHOW_SSTAT AveRSS)
+Average Virtual Memory size of all tasks in job............. $(SHOW_SSTAT AveVMSize)
+Total energy consumed by all tasks in job, in joules........ $(SHOW_SSTAT ConsumedEnergy)
+   NOTE: Only in case of exclusive job allocation this value
+         reflects the jobs' real energy consumption.
+The number of the job or job step........................... $(SHOW_SSTAT JobID)
+   NOTE: It is in the form: job.jobstep
+Maximum number of bytes read by all tasks in job............ $(SHOW_SSTAT MaxDiskRead)
+The node on which the maxdiskread occurred.................. $(SHOW_SSTAT MaxDiskReadNode)
+The task ID where the maxdiskread occurred.................. $(SHOW_SSTAT MaxDiskReadTask)
+Maximum number of bytes written by all tasks in job......... $(SHOW_SSTAT MaxDiskWrite)
+The node on which the maxdiskwrite occurred................. $(SHOW_SSTAT MaxDiskWriteNode)
+The task ID where the maxdiskwrite occurred................. $(SHOW_SSTAT MaxDiskWriteTask)
+Maximum number of page faults of all tasks in job........... $(SHOW_SSTAT MaxPages)
+The node on which the maxpages occurred..................... $(SHOW_SSTAT MaxPagesNode)
+The task ID where the maxpages occurred..................... $(SHOW_SSTAT MaxPagesTask)
+Maximum resident set size of all tasks in job............... $(SHOW_SSTAT MaxRSS)
+The node on which the maxrss occurred....................... $(SHOW_SSTAT MaxRSSNode)
+The task ID where the maxrss occurred....................... $(SHOW_SSTAT MaxRSSTask)
+Maximum Virtual Memory size of all tasks in job............. $(SHOW_SSTAT MaxVMSize)
+The node on which the maxvsize occurred..................... $(SHOW_SSTAT MaxVMSizeNode)
+The task ID where the maxvsize occurred..................... $(SHOW_SSTAT MaxVMSizeTask)
+Minimum (system + user) CPU time of all tasks in job........ $(SHOW_SSTAT MinCPU)
+The node on which the mincpu occurred....................... $(SHOW_SSTAT MinCPUNode)
+The task ID where the mincpu occurred....................... $(SHOW_SSTAT MinCPUTask)
+Total number of tasks in a job or step...................... $(SHOW_SSTAT NTasks)
+Requested CPU frequency for the step, in kHz................ $(SHOW_SSTAT ReqCPUFreq)
+Tres average usage in by all tasks in job................... $(SHOW_SSTAT TresUsageInAve)
+   NOTE: If corresponding TresUsageInMaxTask is -1
+         the metric is node centric instead of task.
+Tres maximum usage in by all tasks in job................... $(SHOW_SSTAT TresUsageInMax)
+   NOTE: If corresponding TresUsageInMaxTask is -1
+         the metric is node centric instead of task.
+Node for which each maximum TRES usage out occurred......... $(SHOW_SSTAT TresUsageInMaxNode)
+Task for which each maximum TRES usage out occurred......... $(SHOW_SSTAT TresUsageInMaxTask)
+Tresaverage usage out by all tasks in job................... $(SHOW_SSTAT TresUsageOutAve)
+   NOTE: If corresponding TresUsageOutMaxTask is-1
+         the metric is node centric instead of task.
+Tresmaximum usage out by all tasks in job................... $(SHOW_SSTAT TresUsageOutMax)
+   NOTE: If corresponding TresUsageOutMaxTask is-1
+         the metric is node centric instead of task.
+Node for which each maximum TRES usage out occurred......... $(SHOW_SSTAT TresUsageOutMaxNode)
+Task for which each maximum TRES usage out occurred......... $(SHOW_SSTAT TresUsageOutMaxTask)
+EOF
+fi
+done
+[ "$JOBS" = '' ] && echo '<ERROR> s-joblists stat ==> no jobid supplied and SLURM_JOB_ID not set'
+}
+################################################################################
+function ABBREVIATION_LIST(){
+cat <<\EOF
+consumed
+files
+pending
+running
+ended
+list
+dump
+priority
+show
+jobload
+starttime
+stat
+times
+EOF
+}
+################################################################################
+function ABBREVIATION(){
+WORD=${1:-dropthrough}
+WORD=$(ABBREVIATION_LIST|grep "^$WORD.*"|head -n 1)
+}
+################################################################################
+#
+# main
+#
+source $(dirname $0)/.functions
+# remove all SQUEUE environment variables; can use env(1) instead
+UNSET_SQUEUE
+STANDARDENV
+# parse command line
+# s-joblists word [jobIDs]
+WORD="$1"
+ABBREVIATION "$WORD"
+shift 1
+export OTHER="$*"
+
+if [ "$OTHER" = '' ]
+then
+ : 
+elif [ "$(tr -d ']0-9,[-'<<<${OTHER})" = '' ]  # looks like a joblist
+then
+    EXPAND_JOBLIST "${OTHER}"
+else
+    REGEX_JOBLIST "${OTHER}"
+fi
+ABBREVIATION $WORD
+
+#export SQUEUE_USERS=$USER #       --users=<user_list>
+################################################################################
+case "${WORD,,}" in
+consumed)    CONSUMED|PAGER    ;;
+stat)        STAT|PAGER        ;;
+pending)     PENDING|PAGER     ;;
+ended)       ENDED|PAGER       ;;
+list)        LIST|PAGER        ;;
+running)     RUNNING|PAGER     ;;
+starttime)   STARTTIME|PAGER   ;;
+times)       TIMES|PAGER       ;;
+files)       FILES|PAGER       ;;
+show)        DUMP|PAGER        ;;
+dump)        DUMP  --oneliner|PAGER  ;;
+priority)    PRIORITY|PAGER    ;;
+jobload)     JOBLOAD|PAGER     ;;
+default*|*)
+cat <<EOF
+$0: favorite job queue listings
+SYNOPSIS
+    s-joblists keyword [jobIDs]
+DESCRIPTION
+   Generate job queue listings emphasizing particular aspects of the job
+   information.
+OPTIONS
+
+   subcommands  select the type of job queue  description.
+
+   A "match" string is any string or regular expression that matches 
+   the string generated by "scontrol --oneliner show job".
+
+   Allowed values are
+
+       + pending  [joblist|match]  # pending jobs
+       + running  [joblist|match]  # running jobs
+       + ended    [joblist|match]  # recently ended jobs
+       + list     [joblist|match]  # all jobs formatted
+       + show     [joblist|match]  # dump all job parameters per scontrol(1)
+       + dump     [joblist|match]  # dump all job parameters one per line
+       + priority [joblist|match]  # job priority information 
+       + jobload  [joblist|match]  # load on nodes of specified jobs
+       + consumed    # show resources consumed by jobs
+       + files       # stdin,stdout,command,working files and directories
+       + starttime   # estimated start time where available
+       + times       # submit,start,end,duration,timelimit times
+       + stat        # call sstat in a formatted and labeled column
+
+   Abbreviations are allowed.
+
+EXAMPLE
+    s-joblists pending 100             # describe a single pending job by number
+    s-joblists running '[100-104],110' # use a joblist
+    s-joblists pending $USER           # list pending jobs for current user
+
+    s j r  # using abbreviator (same as 's jobs running'
+EOF
+;;
+esac
+################################################################################
+exit
+###############################################################################
+ Network loads
+ I/O rate
+ page rate
+ tmp space
+ CPU utilization
+ process demand (uptime)
+ healthcheck state
+
+ Some via commands, some via /proc/* on node.
+################################################################################

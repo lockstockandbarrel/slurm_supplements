@@ -1,0 +1,119 @@
+#!/bin/bash
+################################################################################
+#@(#) cleanup scratch environment and generate usage report for a Slurm job
+# run at end of job or in epilogue
+################################################################################
+# option to record information into SQLite3 insert or NAMELIST, JSON/TOML/XML/...
+# if run in job can get environment variables, and can use "srun --jobid=JOBID"
+# for a running job to set variables.
+# sinfo can get CPU utilization but something like dumpjobs that writes all
+# job information out in a form that can be used by eval or as NAMELIST or TOML
+# format or an insert into SQLite3 would be useful.
+cat <<\EOF
+Job Name:          $SLURM_JOB_NAME
+Job ID:            $SLURM_JOB_ID
+Cluster:           $SLURM_CLUSTER_NAME
+User/Group:        $SLURM_JOB_USER
+State:             COMPLETED (exit code 0)
+Nodes:             $SLURM_NNODES
+Nodelist:          $SLURM_JOB_NODELIST
+Cores per node:    $SLURM_JOB_CPUS_PER_NODE
+CPU Utilized:      08:04:12
+CPU Efficiency:    98.22% of 08:13:00 core-walltime
+Memory Utilized:   5.42 GB (estimated maximum)
+Memory Efficiency: 45.13% of 12.00 GB (1.00 GB/core)
+Submit Time:
+Start Time:
+End Time:
+Pend Time:
+EOF
+################################################################################
+exit
+################################################################################
+   JobState=RUNNING Reason=None Dependency=(null)
+   RunTime=08:04:25 TimeLimit=UNLIMITED TimeMin=N/A
+   SubmitTime=2023-12-23T00:31:15 EligibleTime=2023-12-23T00:31:15
+   AccrueTime=2023-12-23T00:31:15
+   StartTime=2023-12-26T09:44:49 EndTime=Unknown Deadline=N/A
+   MinCPUsNode=1 MinMemoryCPU=1M MinTmpDiskNode=0
+   TRES=cpu=1,mem=1M,node=1,billing=1
+################################################################################
+env|grep '^SLURM_'
+SLURM_STEP_NUM_TASKS=1
+SLURM_JOB_USER=urbanjs
+SLURM_TASKS_PER_NODE=1
+SLURM_JOB_UID=1000
+SLURM_CPU_BIND=quiet,mask_cpu:0x1
+SLURM_TASK_PID=1559509
+SLURM_LOCALID=0
+SLURM_SUBMIT_DIR=/home/urbanjs/venus/V600/SLURM/slurmdocs/bin
+SLURM_CPU_BIND_VERBOSE=quiet
+SLURMD_NODENAME=mercury
+SLURM_STEP_NODELIST=mercury
+SLURM_CLUSTER_NAME=urban
+SLURM_CPUS_ON_NODE=1
+SLURM_UMASK=0002
+SLURM_JOB_CPUS_PER_NODE=1
+PWD=/home/urbanjs/venus/V600/SLURM/slurmdocs/bin
+SLURM_GTIDS=0
+SLURM_JOB_PARTITION=production
+SLURM_STEPID=0
+SLURM_CPU_BIND_LIST=0x1
+SLURM_JOB_ID=1239
+SLURM_PTY_PORT=39035
+SLURM_LAUNCH_NODE_IPADDR=127.0.0.1
+SLURM_PTY_WIN_ROW=37
+SLURM_CPU_BIND_TYPE=mask_cpu:
+SLURM_PROCID=0
+SLURM_NTASKS=1
+SLURM_TOPOLOGY_ADDR=mercury
+SLURM_DISTRIBUTION=cyclic
+SLURM_TOPOLOGY_ADDR_PATTERN=node
+SLURM_SRUN_COMM_HOST=127.0.0.1
+SLURM_WORKING_CLUSTER=urban:mercury:6817:8704:101
+SLURM_PTY_WIN_COL=132
+SLURM_NODELIST=mercury
+SLURM_SRUN_COMM_PORT=38395
+SLURM_STEP_ID=0
+SLURM_PRIO_PROCESS=0
+SLURM_NPROCS=1
+SLURM_NNODES=1
+SLURM_SUBMIT_HOST=mercury
+SLURM_JOB_ID=1239
+SLURM_NODEID=0
+SLURM_STEP_NUM_NODES=1
+SLURM_STEP_TASKS_PER_NODE=1
+SLURM_JOB_NAME=bash
+SLURM_STEP_LAUNCHER_PORT=38395
+SLURM_JOB_GID=1000
+OLDPWD=/home/urbanjs/venus/V600/SLURM/slurmdocs
+SLURM_JOB_NODELIST=mercury
+################################################################################
+scontrol show job=1239
+JobId=1239 JobName=j1
+   UserId=urbanjs(1000) GroupId=urbanjs(1000) MCS_label=N/A
+   Priority=4294900552 Nice=0 Account=(null) QOS=(null)
+   JobState=RUNNING Reason=None Dependency=(null)
+   Requeue=1 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=0:0
+   RunTime=08:04:25 TimeLimit=UNLIMITED TimeMin=N/A
+   SubmitTime=2023-12-23T00:31:15 EligibleTime=2023-12-23T00:31:15
+   AccrueTime=2023-12-23T00:31:15
+   StartTime=2023-12-26T09:44:49 EndTime=Unknown Deadline=N/A
+   SuspendTime=None SecsPreSuspend=0 LastSchedEval=2023-12-26T09:44:49
+   Partition=production AllocNode:Sid=mercury:3895730
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=mercury
+   BatchHost=mercury
+   NumNodes=1 NumCPUs=1 NumTasks=1 CPUs/Task=1 ReqB:S:C:T=0:0:*:*
+   TRES=cpu=1,mem=1M,node=1,billing=1
+   Socks/Node=* NtasksPerN:B:S:C=0:0:*:1 CoreSpec=*
+   MinCPUsNode=1 MinMemoryCPU=1M MinTmpDiskNode=0
+   Features=(null) DelayBoot=00:00:00
+   OverSubscribe=OK Contiguous=0 Licenses=(null) Network=(null)
+   Command=/tmp/j1
+   WorkDir=/tmp
+   StdErr=/tmp/slurm-1239.out
+   StdIn=/dev/null
+   StdOut=/tmp/slurm-1239.out
+   Power=
+################################################################################

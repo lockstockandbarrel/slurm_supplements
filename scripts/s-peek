@@ -1,0 +1,335 @@
+#!/bin/bash
+#@(#) (INFO-JOB) :H: display Slurm job script, job parameters, and job output for specified job IDs
+# Version: 1.0.0, 2023-12-22, John, S. Urban
+###############################################################################
+function SHOWINPUT(){
+[ "$VERBOSE" == TRUE ] && echo 'SHOWINPUT >>'
+# display the input script for specified job ID to stdout
+(
+JOB_ID=$1
+$EXE scontrol write batch_script "$JOB_ID" -
+)|sed -e 's@^@I: @'
+echo '::'
+}
+###############################################################################
+function SHOWPARAMS(){
+# display the Slurm parameters for specified job ID
+[ "$VERBOSE" == TRUE ] && echo 'SHOWPARAMS >>'
+(
+JOB_ID=$1
+$EXE scontrol show job --details "$JOB_ID"             # show the Slurm job parameters
+)|sed -e 's@^@P: @'
+echo '::'
+}
+###############################################################################
+function SHOWOUTPUT(){
+[ "$VERBOSE" == TRUE ] && echo 'SHOWOUTPUT >>'
+JOB_ID=$1
+# show the stdout and stderr of the job
+# basic eval(1) is vulnerable to an insertion attack from filename so use declare(1)
+
+declare DECLARE_AT_LEAST=YES $(scontrol show job --details "$JOB_ID"|xargs -n 1|egrep -i '\<StdOut=|\<StdErr=|\<BatchHost=')
+###############################################################################
+# Needs work to expand filename macros. Would prefer Slurm do this
+
+#case "$StdOut" in
+#*%*) EXPAND_FILENAMES $JOB_ID ;; # macros in filename need expanded
+#esac
+
+#case "$StdErr" in
+#*%*) EXPAND_FILENAMES $JOB_ID ;; # macros in filename need expanded
+#esac
+
+###############################################################################
+if [ "$StdOut" != '' ]
+then
+      echo "$StdOut"
+      if [ -r "$StdOut" ]
+      then
+         tail $FOLLOW -n $TAIL "$StdOut"
+      elif [ "$BatchHost" != '' ]
+      then
+         :
+         ssh $BatchHost "[ -r '$StdOut' ]  && tail $FOLLOW -n $TAIL '$StdOut'"
+      fi
+fi
+
+if [ "$StdErr" != '' -a "$StdErr" != "$StdOut" ]
+then
+      echo "$StdErr"
+      if [ -r "$StdErr" ]
+      then
+         tail $FOLLOW -n $TAIL "$StdErr"
+      elif [ "$BatchHost" != '' ]
+      then
+         ssh $BatchHost "[ -r '$StdErr' ]  && tail $FOLLOW -n $TAIL '$StdErr'"
+      fi
+fi |sed -e 's@^@O: @'
+echo '::'
+}
+###############################################################################
+function PARSE(){
+[ "$VERBOSE" == TRUE ] && echo 'PARSE >>'
+# Note we use "$@" to let each command-line parameter expand to a separate word.
+# The quotes around "$@" are essential!
+# We need TEMP as the 'eval set --' would nuke the return value of getopt.
+# TEMP=$(/usr/bin/getopt -o 'hvVquFdj:o:s:t:' \
+# builtin may not support optional arguments
+TEMP=$(getopt -o 'hvVquFdj:f:s:t:' \
+   --long 'help,version,verbose,quiet,usage,follow,debug,jobs,format:,show:,tail:' \
+   -n "$(basename $0)" -- "$@")
+
+if [ $? -ne 0 ]; then
+   echo 'Terminating...' >&2
+   exit 1
+fi
+
+# Note the quotes around "$TEMP": they are essential!
+eval set -- "$TEMP"
+unset TEMP
+export LONG=FALSE STATE='' STATE='' VERBOSE='' QUIET='' OTHER=''
+export LONG=FALSE FOLLOW='' DEBUG=FALSE
+export FORMAT='jobid,batchhost,name:' SHOW='ipo' TAIL='+0'
+while true; do
+   case "$1" in
+      '-h'|'--help')        shift; HELP;             exit     ;;
+      '-v'|'--version')     shift; VERSION;          exit     ;;
+      '-u'|'--usage')       shift; USAGE;            exit     ;;
+
+      '-V'|'--verbose')     shift; VERBOSE=TRUE;            continue ;;
+      '-F'|'--follow')      shift; FOLLOW="-F";             continue ;;
+      '-d'|'--debug')       shift; DEBUG="TRUE"; set -v -x; continue ;;
+      '-q'|'--quiet')       shift; QUIET=TRUE;              continue ;;
+      '-s'|'--show')        SHOW="${2,,}"; shift 2;         continue ;;
+      '-j'|'--jobs')        OTHER="${2}";  shift 2;         continue ;;
+      '-o'|'-f'|'--format'|'--Format')
+         # -o has an optional argument. As we are in quoted mode,
+         # an empty parameter will be generated if its optional
+         # argument is not found.
+         case "$2" in
+            '') FORMAT=''   ;; # Option c, no argument
+            *)  FORMAT="$2" ;; # Option c, argument '$2'
+         esac
+         shift 2
+         continue
+      ;;
+      '-t'|'--tail') # -t has an optional argument.
+         case "$2" in
+            '') TAIL='+0' ;; # Option c, no argument
+            *)  TAIL="$2" ;; # Option c, argument '$2'
+         esac
+         shift 2
+         continue
+      ;;
+      '--')
+         shift
+         break
+      ;;
+      *)
+         echo 'Internal error!' >&2
+         exit 1
+      ;;
+   esac
+done
+
+# Remaining arguments:
+for arg; do
+   OTHER="$OTHER $arg"
+done
+OTHER=${OTHER:-.}
+}
+################################################################################
+function HELP(){
+TTY=${TTY:-$(tty --silent||echo FALSE && echo TRUE)}
+HELPCAT <<\EOF
+NAME
+    s-peek(1)  -  display the job script, job scheduling information,
+                  and standard job output (if running) of Slurm jobs
+SYNOPSIS
+
+    s-peek [--show IPOX][--tail [+]N ][--follow][--format PREFIX_FORMAT] ...
+           [--verbose|--quiet] [jobIDs]
+
+    s-peek --help|--version|--usage
+DESCRIPTION
+    Examine the job script, state and any stdout/stderr of Slurm jobs by JobID.
+
+    Job information is prefixed with identifying information
+
+    The stdout and stderr of the jobs are filtered via tail(1), allowing
+    for selecting how many lines of output per job are selected.
+
+    Single jobs may have their stdout or stderr followed as the jobs
+    progress until terminated (typically via ctrl-C).
+
+OPTIONS
+    jobIds        list of job IDs. Default is all jobs of current user
+                  (or all jobs if user is root). May be a joblist or an
+		  extended regular expression matched against a dump of
+		  the current jobs via "scontrol --oneliner show jobs".
+    --format FMT  format passed to squeue(1) to generate prefix for output.
+                  Default is "jobid,batchhost,name:". See "--format"
+                  and "-Format" under "man squeue".
+    --show        
+                  determines what output sections to display for a given job ID:
+
+                  The value may be a combination of the characters in
+                  "ipox". The default is "ipo".
+
+                    i  input script
+                    p  the Slurm parameters describing the job and job state.
+                    o  stdout and stderr of the job
+                    x  experimental option
+
+    --tail [+]N   value to pass to the tail(1) command -n parameter used
+                  to display the stdout and stderr of the job. Defaults to +0.
+
+    --follow      Add the -F switch to the tail(1) command used to output the
+                  stdout and stderr of the job so it will continue to output
+                  new appended data until terminated (typically via a ctrl-C or
+                  KILL signal). Currently intentionally assumes one jobID is
+                  selected by s-peek(1).
+
+    --verbose     display Slurm commands executed by s-peek(1) and
+                  additional information
+    --quiet       display minimal output
+
+    --help        display this help and exit
+    --usage       display basic list of options and descriptions
+    --version     output version information and exit
+
+EXAMPLES
+   Sample commands
+
+       s-peek # see script, parameters, and output of all jobs
+       s-peek --format jobid   # just use jobid for output prefix
+       s-peek --format=''      # no prefix
+       s-peek --show o 200,300 # just std output of  specified jobs
+       s-peek --follow 2020  # follow output of jobID 2020 till ctrl-C is entered
+
+SEE ALSO
+   sinfo(1), scontrol(1), squeues(1)
+EOF
+}
+###############################################################################
+function VERSION(){
+cat <<\EOF
+PRODUCT:        Slurm tools
+PROGRAM:        s-peek
+DESCRIPTION:    display Slurm job script, job parameters, and job output for specified job IDs
+VERSION:        1.0, 2023-12-19
+AUTHOR:         John S. Urban
+REPORTING BUGS: http://www.urbanjost.altervista.org/
+HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+LICENSE:        MIT
+EOF
+}
+###############################################################################
+function USAGE(){
+cat <<EOF
+Usage for: $0
+
+EOF
+cat <<\EOF
+    s-peek [--show IPOX][--tail [+]N ][--follow][--format PREFIX_FORMAT] ...
+          ... [--verbose|--quiet][jobIDs]
+
+    s-peek --help|--version|--usage
+
+      jobIds            list of job IDs. Defaults to all jobs owned by current
+                        user (or all jobs if user is root).
+      -o|--format       format to pass to squeue(1) to create prefix for output
+      -s|--show IOTYPE  types of output from set of letters "ipo". (i)nput,
+                        (p)arameters for job, standard (o)utput and
+                        standard error.
+      -f|--format       format to pass to squeue(1) to create prefix for output
+      -t|--tail [+]N    passed to tail(1) -n parameter for displaying stdout/err
+      -F|--follow       add -F to tail(1) used to display job output files
+
+      -h|--help         display help text
+      -v|--version      display script version
+      -V|--verbose      show Slurm commands executed and additional information
+      -u|--usage        display this list of options
+EOF
+#     -q|--quiet        limit output to minimal information
+}
+###############################################################################
+function VERBOSE(){
+if [ "$VERBOSE" == TRUE ]
+then
+   EXE=EXE
+   cat <<EOF
+For $0 ...
+   OTHER      $OTHER
+   FORMAT     $FORMAT
+   SHOW       $SHOW
+   PREFIX     $PREFIX
+   VERBOSE    $VERBOSE
+   QUIET      $QUIET
+   HELP       $HELP
+   TAIL       $TAIL
+   FOLLOW     $FOLLOW
+EOF
+else
+   unset EXE
+fi
+}
+###############################################################################
+#
+# main
+#
+source $(dirname $0)/.functions
+PARSE $*
+VERBOSE
+
+USER="${USER:-${LOGNAME:-$(whoami)}}"
+case "${USER}" in # list of job numbers, defaults to all for a user, or all jobs for root
+root)OTHER="${OTHER:-$(squeue --noheader --format=%A)}";;
+*)   OTHER="${OTHER:-$(squeue --noheader --user="$USER" --format=%A)}";;
+esac
+EXPAND_MATCH_TO_JOBS
+OTHER=${OTHER//,/ }                    # allow comma and/or space delimited job IDs
+
+#OTHER=$(IFS=' ,:'; for NAME in ${OTHER}; do echo $NAME;done|xargs)
+
+for JOBNUMBER in ${OTHER}
+do
+   # determine prefix for output
+   #echo "FORMAT=$FORMAT";continue
+   case "$FORMAT" in
+   '')  PREFIX='' SQUEEZE='s/  *$//';;
+   *%*) PREFIX=$(squeue --noheader --job="$JOBNUMBER" --format="$FORMAT");SQUEEZE='s/$/ :/' ;;
+   *)   PREFIX=$(squeue --noheader --job="$JOBNUMBER" --Format="$FORMAT");SQUEEZE='s/  */ :/g' ;;
+   esac
+   PREFIX="${PREFIX//@/\\@}"
+   PREFIX=$(echo "$PREFIX "|sed -e "$SQUEEZE")
+   (
+   for LETTER in $(echo $SHOW|fold -w1)
+   do
+      case "$LETTER" in
+       i) SHOWINPUT  "$JOBNUMBER"  ;; # show the input script
+       p) SHOWPARAMS "$JOBNUMBER"  ;; # show the Slurm job parameters
+       o) SHOWOUTPUT "$JOBNUMBER"  ;; # show the stdout and stderr of the job
+       x) squeue --jobs=$JOBNUMBER --noheader --Format="\
+numcpus:1000,\
+partition:1000,\
+exit_code:1000,\
+state:1000,\
+starttime:1000,\
+endtime:1000,\
+timelimit:1000,\
+timeleft:1000\
+dependency:1000,\
+stdout:1000,\
+reason:1000,\
+"|sed -e 's/  */ /g';\
+          break ;; # assume a Format value
+       *) $EXE squeue --jobs=$JOBNUMBER --noheader --Format="$SHOW"; break ;; # assume a Format value
+          # if string starts with [ipo] those would be run also, so not a real feature; but can play with
+      esac
+   done
+   )|sed -e "s@^@$PREFIX@"
+done
+###############################################################################
+exit
+###############################################################################

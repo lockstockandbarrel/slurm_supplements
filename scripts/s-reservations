@@ -1,0 +1,178 @@
+#!/bin/bash
+################################################################################
+#@(#) (STATE-RESERVATIONS) :W: control and list reservations
+################################################################################
+function SHOW(){
+# show output of "scontrol show reservations"
+OPTIONS="$@"
+scontrol show reservations $OPTIONS
+}
+################################################################################
+function LIST(){
+OPTIONS="$@"
+sinfo --reservation
+}
+################################################################################
+function CREATE_NODENUMBER(){
+# main
+#
+( exec 2>&1
+HEADER  create reservation by number of nodes
+#
+RESNAME=$1   # name for temporary reservation
+NUMNODES=${2:-1}
+
+SUDO scontrol create reservation=$RESNAME \
+   StartTime=now \
+   Duration=unlimited \
+   users="${USER:-${LOGNAME:-$(whoami)}}" \
+   NodeCnt=$NUMNODES ||
+SUDO scontrol create reservation=$RESNAME \
+   StartTime=now \
+   Duration=unlimited \
+   users="${USER:-${LOGNAME:-$(whoami)}}" \
+   flags=ignore_jobs \
+   NodeCnt=$NUMNODES
+
+SUDO scontrol show reservation=$RESNAME
+)
+}
+################################################################################
+function CREATE_TIMEBINS(){
+# Set timelimits on the nodes in a linear progression
+#
+# StartTime=now+10minute  will always be 10 minutes in the future
+#( exec 2>&1
+HEADER  create reservation for jobs of specified time limit
+PARTITION=$1
+NUMNODES=${2:-1}
+LIMIT=$3   # name for temporary reservation
+
+echo GOT HERE C
+SUDO scontrol delete reservation=timelimit_${LIMIT} 2>/dev/null
+sleep 4
+SUDO scontrol create reservation=timelimit_${LIMIT} StartTime=now+${LIMIT}minute Duration=unlimited users="-root" NodeCnt=$NUMNODES flags=ignore_jobs,flex,time_float,no_hold_jobs_after
+#
+## cannot get magnetic to work
+##   Partition=$PARTITION \
+##   Flags=MAGNETIC,OVERLAP
+scontrol show reservation=timelimit_${LIMIT}
+#)
+}
+################################################################################
+function TIME(){
+echo GOT HERE A
+   CREATE_TIMEBINS debug 4   $((60))
+   CREATE_TIMEBINS debug 10  $((3*60))
+   CREATE_TIMEBINS debug 10  $((12*60))
+   CREATE_TIMEBINS debug 100 $((24*60))
+   CREATE_TIMEBINS debug $(squeue --format %n)   $((24*60*365))
+echo GOT HERE B
+}
+################################################################################
+function PARAMETERS(){
+OPTIONS="$@"
+if [ "$OTHER" = '' ]
+then
+    scontrol $OPTIONS show node
+else
+    for NODE in $(IFS=', '; echo $OTHER)
+    do
+       scontrol $OPTIONS show node "$NODE" | ${COMMAND:-cat}
+    done
+fi
+}
+################################################################################
+function CURRENT(){
+# Print node status for current node
+
+# Use default time format:
+unset SLURM_TIME_FORMAT
+
+for NODE in $(EXPAND ${*:-$(hostname)})
+do
+   (
+   [ "$*" == '' ] && (MESSAGE "slurmd version";slurmd -V;MESSAGE "slurmd status"; scontrol show slurmd)
+   MESSAGE "Node usage per queue for ${NODE}:"
+   sinfo -N --long -n $NODE | tail -n +2
+
+   if [[ "$?" == 0 ]] # Check if squeue returned without error
+   then
+      MESSAGE 'Node configuration:'
+      scontrol show node $*
+   fi
+
+   MESSAGE 'Jobs on node:'
+   squeue --Format JobID:10,NumNodes:6,Partition:15,UserName:12,StartTime,EndTime -w $NODE
+
+   ) |sed -e "s/^/$NODE :/"
+done
+}
+################################################################################
+function HEADER(){
+cat <<EOF
+____________________________________________________________________________________________________________________________
+$*
+EOF
+}
+################################################################################
+function ABBREVIATION_LIST(){
+cat <<\EOF
+show
+list
+create
+timebins
+EOF
+}
+################################################################################
+function ABBREVIATION(){
+WORD=${1:-dropthrough}
+WORD=$(ABBREVIATION_LIST|grep "^$WORD.*"|head -n 1)
+}
+################################################################################
+#
+# main
+#
+source $(dirname $0)/.functions
+# parse command line
+# s-reservations word [nodeIDs]
+ABBREVIATION $*
+shift 1
+# assume rest is nodenames . Default is all nodenames
+export OTHER=${*:-$(NODELIST|xargs)}
+# make node names into a comma-separated list for Slurm commands
+export OTHER=$(EXPAND_TO_LIST $OTHER)
+################################################################################
+case "${WORD,,}" in
+show)        SHOW               ;;
+list)        LIST|PAGER         ;;
+create)      CREATE_NODENUMBER  ;;
+timebins)    TIME               ;;
+default*|*)
+cat <<EOF
+$0: reservations
+SYNOPSIS
+    s-reservations keyword nodeIDs
+DESCRIPTION
+   Manipulate node reservations
+OPTIONS
+Allowed keywords are:
+   keyword  selects type of node description. Allowed values are
+
+    + show  # dump all reservation parameters using scontrol(1)
+    + list  # list all reservations using sinfo(1)
+    + timebins  # set up debug partitions
+    + create <NAME> <NUMBER_OF_NODES>
+
+   abbreviations are allowed
+EXAMPLE
+
+   s-reservations show
+   s res show
+
+EOF
+;;
+esac
+################################################################################
+exit
+################################################################################

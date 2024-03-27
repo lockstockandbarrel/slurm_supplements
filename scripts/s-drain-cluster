@@ -1,0 +1,363 @@
+#!/bin/bash
+################################################################################
+#@(#) (ADMIN) :H: Create/modify a backfilling draindown via a Slurm Reservation
+################################################################################
+function HELP(){
+TTY=${TTY:-$(tty --silent||echo FALSE && echo TRUE)}
+HELPCAT <<\EOF
+NAME
+   s-drain-cluster(1) - Create or modify a backfilling draindown for nodes with
+   a specified prefix via a Slurm Reservation
+SYNOPSIS
+prompting syntax;
+
+    s-drain-cluster  # prompt for draindown information
+
+command line interface syntax:
+
+    # create draindown reservation
+    s-drain-cluster --prefix NODE_PREFIX --starttime YYYY-MM-DDTHH:MM:SS
+
+    # delete existing reservation
+    s-drain-cluster --prefix NODE_PREFIX --delete
+
+    # remove or add nodes from existing reservation
+    s-drain-cluster --prefix NODE_PREFIX --add|--remove 'NODE_NUMBERS'
+    s-drain-cluster --prefix NODE_PREFIX  --alter 'NODE_NAMES'
+
+    s-drain-cluster [--help|-h]|[--version|-v]
+DESCRIPTION
+   s-drain-cluster(1) uses a Slurm reservation to
+
+    + create a reservation for draining a cluster
+    + delete a draindown reservation
+    + add or remove nodes from an existing reservation
+
+    It is assumed the nodes of a cluster share a common hostname prefix
+    followed by a numeric value. All nodes in the default Slurm cluster
+    with the specified prefix are initially placed in the reservation
+    when it is created.
+
+OPTIONS
+   --prefix          hostname prefix used to identify reservation members.
+                     A prefix is required. For --alter it is used just to
+                     select the reservation name "drain_$PREFIX".
+   --starttime DATE  time to start reservation when creating a new reservation
+   --add NODE_NUMBERS     comma-seperated node numbers and ranges to
+                          add to existing reservation. Leading
+                          zeros are significant and range syntax is
+                          "[LOWNUM-HIGHNUM]".
+   --remove NODE_NUMBERS  comma-seperated node numbers and ranges to
+                          remove from the existing reservation. Leading
+                          zeros are significant and range syntax is
+                          "[LOWNUM-HIGHNUM]".
+   --alter NODE_NAMES     signed comma-seperated node names and ranges to
+                          add or delete from existing reservation. Leading
+                          zeros are significant and range syntax is
+                          "[LOWNUM-HIGHNUM]". negative values are removed,
+                          positive values are added.
+
+   --delete          delete the draindown reservation matching the
+                     specified prefix.
+
+   --help            display this help and exit
+   --version         display version number
+EXAMPLE
+   Basic usage:
+
+         # PROMPTING:
+         # If reservation for the prefix does not exit create it
+         $ s-drain-cluster
+           Enter Nodename Prefix for draindown reservation: fy23
+           Enter Starttime (yyyy-mm-ddThh:mm:ss): now + 12 h
+
+         # If reservation exists add or remove nodes or delete it
+         $ s-drain-cluster
+           Enter Nodename Prefix for draindown reservation: fy23
+           (A)dd or (R)emove Nodes (or "Delete" to remove reservation):
+           Enter node numbers for prefix (eg.[001-100],202,300):
+
+         # COMMAND LINE INTERFACE:
+         # create
+         $ s-drain-cluster --prefix fy23- --starttime 'now + 12 h'
+         # delete
+         $ s-drain-cluster --prefix fy23- --delete
+         # change
+         $ s-drain-cluster --prefix fy23- --remove 010,200,543
+         $ s-drain-cluster --prefix fy23- --add  '500,[530-572]'
+         $ s-drain-cluster --alter -fy23-100,+fy23-800
+
+  Alternatively, to delete just one node from a reservation one may also
+  use scontrol(1) directly and a +/- prefix on the nodename. For example:
+
+      scontrol update ReservationName=$RESERVATION_NAME Nodes=+$NODENAME
+      scontrol update ReservationName=$RESERVATION_NAME Nodes=-$NODENAME
+
+  This might be needed as nodes are brought into service for a rolling
+  patch, for example.
+
+SEE ALSO
+   scontrol(1)
+EOF
+}
+################################################################################
+function VERSION(){
+cat <<\EOF
+PRODUCT:        Slurm tools
+PROGRAM:        s-drain-cluster(1)
+DESCRIPTION:    Create or modify a draindown for nodes with a specified prefix
+VERSION:        v1.0.0, 2023-12-30
+AUTHOR:         John S. Urban
+REPORTING BUGS: http://www.urbanjost.altervista.org/
+HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+LICENSE:        MIT
+EOF
+}
+###############################################################################
+function PARSE(){
+# Note that we use "$@" to let each command-line parameter expand to a separate word.
+# The quotes around "$@" are essential!
+# We need TEMP as the 'eval set --' would nuke the return value of getopt.
+TEMP=$(getopt -o 'hvua:A:r:p:s:dc::' --long 'help,version,usage,add:,alter:,remove:,prefix:,starttime:,delete,c-long::' -n "$(basename $0)" -- "$@")
+
+if [ $? -ne 0 ]; then
+        echo 'Terminating...' >&2
+        exit 1
+fi
+
+export PREFIX= DELETE=FALSE CHANGE_NODE='' STARTTIME= NUMBERS=
+# Note the quotes around "$TEMP": they are essential!
+eval set -- "$TEMP"
+unset TEMP
+
+while true; do
+        case "$1" in
+                '-h'|'--help')    shift;   HELP;        exit ;;
+                '-v'|'--version') shift;   VERSION;     exit ;;
+                '-u'|'--usage')   shift;   USAGE;       exit ;;
+
+                '-d'|'--delete')  shift ;  DELETE=TRUE; continue ;;
+
+                '-a'|'--alter')      CHANGE_NODE=ALTER;   NODE_NAMES="$2" ; shift 2; continue ;;
+                '-a'|'--add')        CHANGE_NODE=ADD;     NUMBERS="$2" ;    shift 2; continue ;;
+                '-r'|'--remove')     CHANGE_NODE=REMOVE;  NUMBERS="$2" ;    shift 2; continue ;;
+                '-p'|'--prefix')     PREFIX="$2"    ;                       shift 2; continue ;;
+                '-s'|'--starttime')  STARTIME="$2"  ;                       shift 2; continue ;;
+
+                '-c'|'--c-long')
+                        # c has an optional argument. As we are in quoted mode,
+                        # an empty parameter will be generated if its optional
+                        # argument is not found.
+                        case "$2" in
+                        '') echo 'Option c, no argument' ;;
+                        *) echo "Option c, argument '$2'" ;;
+                        esac
+                        shift 2
+                        continue
+                ;;
+                '--') shift; break ;;
+                *) echo 'Internal error!' >&2; exit 1 ;;
+        esac
+done
+
+# Remaining arguments:
+OTHER=''
+for arg; do
+        OTHER="$OTHER $arg"
+done
+}
+################################################################################
+function SET_STARTTIME(){
+#
+# prompt for starttime if not set and then check for a valid value and
+# convert to standard format. Any value valid for date(1) is acceptable.
+#
+if [ "$STARTTIME" == '' ]
+then
+   # enter start time in any format acceptable to date(1). eg.:
+   #  today + 4 days + 3 hours
+   echo -n 'Enter Starttime (yyyy-mm-ddThh:mm:ss): '
+   read STARTTIME
+   STARTTIME=${STARTTIME:-now}
+fi
+# Validate the date. A bad date will return a blank string.
+# In this case Slurm takes many of the same inputs so the
+# conversion itself is probably not required but is conveniently
+# displayable by the conversion as a conventional date.
+CHECK_STARTTIME
+}
+################################################################################
+function CHECK_STARTTIME(){
+STARTTIME=$(date --date="$STARTTIME" +%Y-%m-%dT%H:%M:%S)
+if [ "$STARTTIME" == '' ]
+then
+cat <<\EOF
+<ERROR> date is not recognized. Allowed time specifications conform to ...
+
+   Preferred: YYYY-MM-DDTTHH:MM:SS
+
+   For start times within the next 24 hours the form HH:MM:SS (seconds
+   are optional) is sufficient. (If that time is already past, the next
+   day is assumed.)
+
+   You may also specify midnight, noon, fika (3 PM) or teatime (4 PM)
+   and you can have a time-of-day suffixed with AM or PM for running in
+   the morning or the evening.
+
+   You can also say what day the job will be run, by specifying a date
+   of the form MMDDYY or MM/DD/YY or MM.DD.YY, or a date and time as
+   YYYY-MM-DD[THH:MM[:SS]]. You can also give times like now + count
+   time-units, where the time-units can be minutes, hours, days, or weeks
+   and you can tell Slurm to run the job today with the keyword today
+   and to run the job tomorrow with the keyword tomorrow. You cannot
+   update the StartTime of a reservation in ACTIVE state.
+
+EOF
+fi
+}
+################################################################################
+function CREATE_DRAIN_RESERVATION(){
+# Create a Slurm reservation specifically for draining down nodes with a common hostname prefix for maintenance
+#
+# The "maint" flag is used to identify the reservation for accounting purposes as system maintenance.
+# The "ignore_jobs" flag is used to indicate that we can ignore currently running jobs when creating this reservation.
+# By default, only resources which are not expected to have a running job at the start time can be reserved.
+#
+# Note the "Reservation" without a value produces an automatically generated unique name.
+#
+
+SET_STARTTIME # prompt for starttime if not set and then check for a valid value
+
+( exec 2>&1;set -x
+   scontrol create Reservation=$RESERVATION_NAME \
+      starttime="$STARTTIME" \
+      duration=UNLIMITED \
+      user="${USER:-${LOGNAME:-$(whoami)}}" \
+      flags=maint,ignore_jobs \
+      nodes="$NODELIST"
+)
+}
+################################################################################
+function DELETE_DRAIN_RESERVATION(){
+   ( exec 2>&1;set -x
+   scontrol delete reservation="$RESERVATION_NAME"
+   )
+}
+################################################################################
+function SHOW_RESERVATION(){
+if [ "$*" != '' ]
+then
+   ( exec 2>&1; set -x
+   scontrol --oneliner show Reservation="$@"
+   )|xargs -n 1|egrep -i '\<Reservation=|\<ReservationName=|\<StartTime=|\<Nodes=|\<State=|\<User='|sed -e 's/^/    /'
+else
+   ( exec 2>&1; set -x
+   scontrol --oneliner show Reservation
+   )|grep drain_ |xargs -n 1|egrep -i '\<Reservation=|\<ReservationName=|\<StartTime=|\<Nodes=|\<State=|\<User='|sed -e 's/^/    /'
+fi
+echo
+}
+################################################################################
+# main
+#
+source $(dirname $0)/.functions
+PARSE "$@"
+
+echo 'Create or modify a draindown Slurm reservation for nodes with a specified prefix'
+
+if [ "$PREFIX" == '' ]
+then
+   echo -n 'Enter Nodename Prefix for draindown reservation: '
+   read PREFIX
+fi
+
+RESERVATION_NAME=drain_${PREFIX}
+
+# Setting "Nodes" variable from reservation listing
+unset Nodes
+LINES=$(scontrol show reservation="${RESERVATION_NAME}" --details |xargs -n 1|egrep -i '\<Nodes=')
+declare -x ${LINES:-Nodes=''}
+
+if [ "$Nodes" == '' ]
+then
+   case "$PREFIX" in
+   ALL)
+   ;;
+   '')
+      echo "<ERROR> $0: must enter Nodename Prefix"
+      echo 'current drain reservations (if any):'
+      SHOW_RESERVATION
+      exit 2
+   ;;
+   *)
+      # generate list of all nodenames, expand it to one per line and
+      # get names starting with prefix, then convert that to a comma-separated
+      # list of names and recompress the names
+      NODELIST=$( EXPAND $(sinfo --format=%N --noheader)| grep -i "^$PREFIX"| xargs )
+      NODELIST=$( CONTRACT $NODELIST )
+   ;;
+   esac
+
+   CREATE_DRAIN_RESERVATION
+
+elif [ "$DELETE" == TRUE ]
+then
+   DELETE_DRAIN_RESERVATION
+else
+   echo "Reservation ${RESERVATION_NAME} already exists:"
+   SHOW_RESERVATION "$RESERVATION_NAME"
+
+
+   if [ "$CHANGE_NODE" == '' ]
+   then
+      echo -n '(A)dd or (R)emove Nodes (or "Delete" to remove reservation): '
+      while true
+      do
+         read REPLY
+         case "${REPLY^^}" in
+          A*) CHANGE_NODE='ADD'   ; break ;;
+          R*) CHANGE_NODE='REMOVE'; break ;;
+          DELETE*) DELETE_DRAIN_RESERVATION; exit;;
+          *) echo '<ERROR>Must enter "add","remove", or "delete"' ; continue ;;
+         esac
+      done
+   fi
+
+   if [ "$NUMBERS" == '' ]
+   then
+      echo -n 'Enter node numbers for prefix '"$PREFIX"'(eg."[001-100],202,300"): '
+      read NUMBERS
+   fi
+
+   case "$CHANGE_NODE" in
+   REMOVE)
+   GREPNAMES=$(EXPAND ${NUMBERS}|sed -e "s/^ */$PREFIX/")
+   GREPNAMES=$(sed -e 's/  */|/g'<<< $(echo $GREPNAMES|xargs))
+   NEWNAMES=$(EXPAND $Nodes |egrep -vw "$GREPNAMES")
+   ;;
+   ADD)
+   NAMES=$(EXPAND ${NUMBERS}|sed -e "s/^ */$PREFIX/")
+   NEWNAMES=$(( EXPAND $Nodes ; echo $NAMES)|xargs -n 1|sed -e "s/$PREFIX//"|sort -k 1n|uniq|sed -e "s/^/$PREFIX/"|xargs)
+   ;;
+   ALTER)
+   NEWNAMES="$NODE_NAMES"
+   ;;
+   *) echo "<ERROR> bad CHANGE_NODE value $CHANGE_NODE must be from set {ADD,REMOVE,DELETE}" ; exit
+   esac
+
+   # UPDATE RESERVATION NODE LIST EVEN IF ACTIVE (IN BETWEEN START AND END DATE INCLUSIVE)
+   NEWNAMES=$( CONTRACT $NEWNAMES )
+   ( exec 2>&1; set -x
+   scontrol update ReservationName=$RESERVATION_NAME Nodes="$NEWNAMES"
+   )
+   echo "The Reservation now looks like"
+   SHOW_RESERVATION "$RESERVATION_NAME"
+fi
+################################################################################
+exit
+################################################################################
+  As the reservation time approaches, only jobs that can complete by
+  the reservation time will be initiated.
+
+  Manually cancel the running jobs as needed to perform system maintenance.
+################################################################################

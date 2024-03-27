@@ -1,0 +1,172 @@
+#!/bin/bash
+#@(#) (INFO-SLURM) :HW: Identify master Slurm server running slurmctld(1)
+[ "$DEBUG" != '' ] && set -v -x
+ARGS="$*"
+################################################################################
+function HELP(){
+TTY=${TTY:-$(tty --silent||echo FALSE && echo TRUE)}
+HELPCAT <<\EOF
+NAME
+   s-cluster(1) - Identify master Slurm server running slurmctld(1)
+SYNOPSIS
+    s-cluster [--all|-a]|[--slurmd]
+
+    s-cluster [--help|-h]|[--version|-v]
+DESCRIPTION
+   Show the hostname and additional cherry-picked information about the
+   SLURM master.
+
+   This is done primarily by winnowing output from
+      + scontrol ping
+      + scontrol show config
+      + scontrol show slurmd
+      + systemctl status slurmd
+      + systemctl status slurmctld
+OPTIONS
+   --brief,b    just display SLURM control node name
+   --all,a     display additional information
+   --slurmd     display slurmd daemon state
+
+   --help,h     display this help and exit
+   --version,v  display version number
+EXAMPLE
+   Basic usage:
+
+         $ s-cluster
+         BOOT_TIME               = 2023-12-03T19:24:04
+         ClusterName             = urban
+         SlurmUser               = slurm(64030)
+         SlurmctldHost[0]        = mercury
+         SLURM_VERSION           = 19.05.5
+         Slurmctld(primary) at mercury is UP
+
+   listing of global cluster and node and slurmd information:
+
+         $ s-cluster --all
+SEE ALSO
+   scontrol(1), slurm.conf(5)
+EOF
+}
+################################################################################
+function VERSION(){
+cat <<\EOF
+PRODUCT:        Slurm tools
+PROGRAM:        s-cluster
+DESCRIPTION:    Identify master Slurm server running slurmctld(1)
+VERSION:        v1.0.0, 2023-12-03
+AUTHOR:         John S. Urban
+REPORTING BUGS: http://www.urbanjost.altervista.org/
+HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+LICENSE:        MIT
+EOF
+
+}
+################################################################################
+# main
+source $(dirname $0)/.functions
+################################################################################
+# Transform long options to short by editing arguments
+# UPDATE THIS: getopts(1) can now process long options
+for arg in "$@"; do
+  shift
+  case "$arg" in
+    "--help")    set -- "$@" "-h" ;;
+    "--version") set -- "$@" "-v" ;;
+    "--verbose") set -- "$@" "-V" ;;
+    "--all")     set -- "$@" "-a" ;;
+    "--brief")   set -- "$@" "-b" ;;
+    "--slurmd")  set -- "$@" "-s" ;;
+    *)           set -- "$@" "$arg"
+  esac
+done
+[ "$DEBUG" != '' ] && echo "DEBUG: arguments are now: $@" 1>&2
+################################################################################
+aflag= sflag= vflag= OPTERR=1 Sflag= Svalue= VERBOSE=FALSE
+while getopts hvVabsS: PARAM "$@"
+do
+   [ "$DEBUG" != '' ] && echo operand $operand name $PARAM OPTIND $OPTIND OPTARG $OPTARG 1>&2
+   case "$PARAM" in
+    h)    HELP; exit 0 ;;
+    v)    VERSION; exit 0;;
+    V)    VERBOSE=TRUE ;;
+    a)    aflag=1      ;;
+    b)    bflag=1      ;;
+    s)    sflag=1      ;;
+    S)    sflag=1; Svalue= "$OPTARG";;
+    ?)   printf "$0 : ERROR : unknown option\n"
+   exit 2;;
+   esac
+done
+[ "$DEBUG" != '' ] && echo DEBUG: vflag $vflag aflag $aflag sflag $sflag 1>&2
+################################################################################
+if [ ! -z "$Sflag" ]; then
+        echo 'option -S present value=' "$Svalue"
+fi
+################################################################################
+shift $(($OPTIND - 1))
+[ "$DEBUG" != '' ] && printf "DEBUG: Remaining arguments are: %s\n$*" 1>&2
+
+if [ "$ARGS" == '' ]
+then
+   MESSAGE 'checking Slurm control daemon configuration and status:'
+   scontrol show config|egrep -iw 'BOOT_TIME|SLURM_VERSION|ClusterName|SlurmUser|SlurmctldHost'
+   scontrol ping
+elif [ "$sflag" == 1 ]
+then
+   echo 'Display statistics for the slurmd running on the current node'
+   scontrol show slurmd
+elif [ "$bflag" == 1 ]
+then
+   scontrol ping|cut -f 3-3 -d' '
+elif [ "$aflag" == 1 ]
+then
+   (
+   exec 2>&1
+   MESSAGE 'Ping the primary and secondary slurmctld daemon and report if they are responding.'
+   VEXE scontrol ping
+   MESSAGE 'Slurmctld configuration parameters'
+   VEXE scontrol show config|grep Slurmctld
+   #if [ -x "$(which slurmctld  2>/dev/null)" ]
+   if hash "slurmctld" 2>/dev/null
+   then
+      MASTER=$(scontrol ping|cut -f 3-3 -d' ')
+      if [ "$(hostname)" == "$MASTER" ]
+      then
+         MESSAGE 'checking systemctld:'
+         VEXE systemctl status slurmctld|cat
+
+         PIDNUMBERS="$(pidof $(which slurmctld))"
+         MESSAGE 'Slurmctld processes'
+         ps -p "$PIDNUMBERS"
+      else
+         MESSAGE 'not checking systemctl because not on master node '"$MASTER"
+      fi
+   fi
+   MESSAGE 'Display statistics for the slurmd running on the current node'
+   VEXE scontrol show slurmd
+   MESSAGE 'checking slurmd:'
+   VEXE systemctl status slurmd|cat
+
+   PIDNUMBERS="$(pidof $(which slurmd))"
+   MESSAGE 'slurmd processes'
+   ps -p "$PIDNUMBERS"
+   ) | PAGER
+else
+   echo SHORT
+fi
+################################################################################
+# Issue warnings about the number of Slurm jobs approaching MaxJobCount
+export maxjobpercent=80 # Set the percentage of MaxJobCount above which a warning is produced
+export NUMJOBS=`squeue -hO JobID | wc -l`
+export MAXJOBCOUNT=`scontrol show config | grep MaxJobCount | awk '{print $3}'`
+# Check if NUMJOBS exceeds some percentage of the maximum:
+if (( NUMJOBS > maxjobpercent*MAXJOBCOUNT/100 ))
+then
+        echo "*** WARNING: *** The number of jobs is getting close to the MaxJobCount limit in slurm.conf."
+        echo "Job summary: $NUMJOBS jobs total (max=$MAXJOBCOUNT) in all partitions."
+else
+        echo "Job summary: $NUMJOBS jobs total (max=$MAXJOBCOUNT) in all partitions."
+fi
+################################################################################
+exit
+################################################################################

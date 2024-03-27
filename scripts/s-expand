@@ -1,0 +1,13 @@
+#!/bin/bash
+################################################################################
+#@(#) (FUNCTIONS) :-: expand a compact list of names with numeric suffixes to a column of values
+################################################################################
+source $(dirname $0)/.functions
+if [ "$*" = '' ]
+then
+  printf 'Enter list to expand:'
+  read LINE
+  EXPAND "$LINE"
+else
+  EXPAND "$*"
+fi

@@ -1,0 +1,4 @@
+#!/bin/bash
+#@(#) (INFO-QOS) :W: list available QOS:
+sacctmgr list qos
+exit

@@ -1,0 +1,381 @@
+#!/bin/bash
+###############################################################################
+#@(#) (STATE-JOB) :HW: suspend/resume, hold/release, freeze/thaw  selected Slurm jobs
+###############################################################################
+function VERSION(){
+cat <<\EOF
+PRODUCT:        Slurm tools
+PROGRAM:        s-state
+DESCRIPTION:    Change the state of Slurm jobs: suspend/resume, hold/release, requeue ..
+VERSION:        1.0, 2023-12-29
+AUTHOR:         John S. Urban
+REPORTING BUGS: http://www.urbanjost.altervista.org/
+HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+LICENSE:        MIT
+EOF
+}
+###############################################################################
+function PARSE(){
+# Note that we use "$@" to let each command-line parameter expand to a separate word.
+# The quotes around "$@" are essential!
+# We need TEMP as the 'eval set --' would nuke the return value of getopt.
+TEMP=$(getopt -o 'hvuVdU:A:M:L:n:w:p:q:R:mt:o:a:c::' --long 'help,version,usage,verbose,dryrun,user:,account:,clusters:,licenses:,name:,nodelist:,partition:,qos:,reservation:,me,states:,operation:,attribute:,c-long::' -n "$(basename $0)" -- "$@")
+
+if [ $? -ne 0 ]; then
+        echo 'Terminating...' >&2
+        exit 1
+fi
+
+# Note the quotes around "$TEMP": they are essential!
+eval set -- "$TEMP"
+unset TEMP
+export VERBOSE=FALSE DRYRUN=FALSE SCRIPT_USER=${USER:-$LOGNAME}
+export SCRIPT_USER=''
+export ACCOUNT=''
+export CLUSTERS=''
+export LICENSES=''
+export NAME=''
+export STATES=''
+export NODELIST=''
+export PARTITION=''
+export QOS=''
+export RESERVATION=''
+export OPERATION='resume'
+export VERBOSE_KEYS='+v +x'
+export ATTRIBUTE=''
+while true; do
+   case "$1" in
+      '-h'|'--help')    shift;    HELP;    exit ;;
+      '-v'|'--version') shift;    VERSION; exit ;;
+      '-u'|'--usage')   shift;    USAGE;   exit ;;
+
+      '-V'|'--verbose')  shift;  VERBOSE=TRUE;                     continue  ;;
+      '-d'|'--dryrun')   shift;  DRYRUN=TRUE;                      continue  ;;
+      '-m'|'--me')       shift;  SCRIPT_USER="${USER:-$LOGNAME}";  continue  ;;
+
+      '-U'|'--user')         SCRIPT_USER="$2";                     shift  2;  continue  ;;
+      '-A'|'--account')      ACCOUNT="$2";                         shift  2;  continue  ;;
+      '-M'|'--clusters')     CLUSTERS="$2";                        shift  2;  continue  ;;
+      '-L'|'--licenses')     LICENSES="$2";                        shift  2;  continue  ;;
+      '-n'|'--name')         NAME="$2";                            shift  2;  continue  ;;
+      '-t'|'--states')       STATES="$2";                          shift  2;  continue  ;;
+      '-w'|'--nodelist')     NODELIST="$2";                        shift  2;  continue  ;;
+      '-p'|'--partition')    PARTITION="$2";                       shift  2;  continue  ;;
+      '-q'|'--qos')          QOS="$2";                             shift  2;  continue  ;;
+      '-R'|'--reservation')  RESERVATION="$2";                     shift  2;  continue  ;;
+      '-o'|'--operation')    OPERATION="$2";                       shift  2;  continue  ;;
+      '-a'|'--attribute')    ATTRIBUTE="$2" OPERATION=attribute;   shift  2;  continue  ;;
+
+      '-c'|'--c-long')
+         # c has an optional argument. As we are in quoted mode,
+         # an empty parameter will be generated if its optional
+         # argument is not found.
+         case "$2" in
+         '')
+            echo 'Option c, no argument'
+         ;;
+         *)
+            echo "Option c, argument '$2'"
+         ;;
+         esac
+         shift 2
+         continue
+      ;;
+      '--')
+         shift
+         break
+      ;;
+      *)
+         echo 'Internal error!' >&2
+         exit 1
+      ;;
+   esac
+done
+
+# Remaining arguments:
+OTHER=''
+for arg; do
+        OTHER="$OTHER $arg"
+done
+
+if [ "$*" = '' ]
+then
+ : 
+elif [ "$(tr -d ']0-9,[-'<<<${*})" = '' ]  # looks like a joblist
+then
+    EXPAND_JOBLIST "${*}"
+else
+    REGEX_JOBLIST "${*}"
+fi
+}
+###############################################################################
+function HELP(){
+TTY=${TTY:-$(tty --silent||echo FALSE && echo TRUE)}
+HELPCAT <<\EOF
+NAME
+    s-state(1) - change state of Slurm jobs.
+SYNOPSIS
+    s-state [--attribute PROPERTY|--operation STATE] ...
+    [SELECTION_OPTIONS] [--verbose][--dryrun] [JOBIDS]
+
+    s-state --help| --version | --usage
+DESCRIPTION
+   s-state changes the state of jobs: suspend/resume, hold/release,
+   freeze/thaw, prioritize, requeue .. selected Slurm jobs
+
+   It can also update the attributes of multiple jobs
+
+   The optional job_list argument is a comma separated list of job IDs,
+   corresponding to what can be used with scontrol(1) job_lists, such
+   as when using
+
+        scontrol resume JOBIDS
+
+   There is not any filtering by user, partition, etc. available in the
+   scontrol(1) command for "suspend", "resume", "hold" or "release". The
+   targets must be jobids.
+
+   However the squeue(1) command can be used to perform the filtering
+   and build a script which you can then execute. For example:
+
+       squeue -u urbanjs -h -o "scontrol hold %i" >hold_script.sh
+
+   This technique is useful to resume all of the jobs belonging to a
+   specific user, partition, etc. So the s-state(1) script allows many
+   of the squeue(1) options to be used as a filter, so
+
+       s-state --operation resume --user urbanjs --partition debug
+
+   would resume all the jobs for user "urbanjs" in partition "debug",
+   for example.
+
+ ROLL YOUR OWN
+
+   s-state(1) is essentially adding an "operation" to the squeue(1)
+   command. If you are familiar with squeue(1), enter the command to
+   select the jobs to operate on. Once satisfied with the list, add
+
+       "--noheader --format %i|xargs -iXX scontrol OPERATION xx"
+
+   to get much the same effect.
+
+       squeue -u USER -t running -h -o %i|xargs -iXX scontrol suspend XX
+
+    would suspend all the running jobs of the specified user, for example.
+
+OPTIONS
+   JOBIDS            job IDS to change state of
+   --user,U          userlist of job owners
+   --account,A       account_list
+   --licenses,L      license_list
+   --states,t        job states:
+
+                      PENDING, RUNNING, SUSPENDED, COMPLETED, CANCELLED,
+                      FAILED, TIMEOUT, NODE_FAIL, PREEMPTED, BOOT_FAIL,
+                      DEADLINE, OUT_OF_MEMORY, COMPLETING, CONFIGURING,
+                      RESIZING, REVOKED, SPECIAL_EXIT
+   --clusters,M      cluster_name
+   --me,m            Equivalent to --user=<my username>.
+   --name,n          name_list of job names
+   --partition,p     part_list
+   --qos,q           qos_list
+   --reservation,R   reservation_name
+   --nodelist,w      hostlist
+   -o,--operation    scontrol(1) or scancel(1) operation. Defaults to "resume".
+                     Choices (calling scontrol(1)) include:
+
+                         requeue     <job_list>
+                         ----------------------
+                         hold        <job_list>
+                         uhold       <job_list>
+                         release     <job_list>
+
+                         requeuehold <job_list> # does a REQUEUE and HOLD
+                         ----------------------
+                         top         <job_list> # raise scheduling priority
+                         ----------------------
+                         resume      <job_list>
+                         suspend     <job_list> # and allow CPUs to be used
+
+       NOTE: If performing system maintenance you may want to use
+       "suspend"/"resume" in the following way. Before suspending set
+       all nodes to draining or set all partitions to down so that no
+       new jobs can be scheduled. Then "suspend" jobs. Once maintenance
+       is done resume jobs then "resume" nodes and/or set all partitions
+       back to "up". Use with caution.
+
+                     Additional choices (calling scancel(1))
+                         ----------------------
+                         cancel      <job_list>
+                         freeze      <job_list> # send SIGSTOP and hold CPUS
+                         thaw        <job_list> # send SIGCONT
+                         ----------------------
+
+       NOTE: A "suspend"ed job releases its CPUs for allocation to other
+       jobs. Resuming a previously suspended job may result in multiple
+       jobs being allocated the same CPUs, which could trigger gang
+       scheduling with some configurations or severe degradation in
+       performance with other configurations.
+
+       Use of the scancel(1) command to send SIGSTOP and SIGCONT signals
+       stops a job without releasing its CPUs for allocation to other jobs
+       and is a preferable mechanism in many cases, hence the "freeze" and
+       "thaw" options.
+
+   --attribute,-a   perform "scontrol update jobid=JOBID ATTRIBUTES".
+                    --attributes is exclusive to --operation.
+
+                    multiple jobs cannot be updated with a single
+                    scontrol(1) command except with a numeric job_list
+                    or a jobname/userid combination. eg:
+
+                        scontrol update jobid=100,200 partition=ex
+                        scontrol update jobname=j1 userid=me partition=ex
+
+                    The --attribute option allows jobs to be selected
+                    by the squeue(1) selectors provided by s-state. eg:
+
+                        s-state --attribute "priority=1234 nice=2" --user me
+
+                    s-state combines the filtering and formatting options of
+                    squeue(1) options with "scontrol update job=XX" as
+                    something like the following command builds a script:
+
+                       squeue -tpd -h -o \
+                       "scontrol update jobid=%i priority=1000" >my.script
+
+                    Many of the attributes displayed with "scontrol
+                    show jobid=XX" may be altered, but not all. And
+                    some require administrative privelages or slurm.conf
+                    configurations. See the section
+
+                     "JOBS - SPECIFICATIONS FOR UPDATE COMMAND"
+
+                    in the scontrol(1) man-page (ie. "man scontrol").
+
+   --dryrun,d    dryrun just showing squeue(1) output of selections
+   --verbose,V   verbose mode
+
+   --help        display this help and exit
+   --usage       display condensed description of options
+   --version     output version information and exit
+EXAMPLES
+ Common usage:
+
+      # resume jobID 100
+      s-state 100
+
+      # suspend all running jobs of specified user, if permitted.
+      s-state --state running --operation suspend --u $USER
+
+      # resume all jobs of specified user, if permitted.
+      s-state --state suspended -o resume -U $USER
+
+      # alter priority of all jobs owned by a user
+      s-state --attribute 'priority=1000' --user $USER
+SEE ALSO
+
+   + scontrol(1)
+   + https://slurm.schedmd.com/documentation.html
+EOF
+}
+###############################################################################
+function USAGE(){
+cat <<\EOF
+Job Selectors
+   JOBIDS             job IDS to change state of
+   -A,--account       account_list
+   -L,--licenses      license_list
+   -t,--states        job states
+   -M,--clusters      cluster_name
+   -m,--me            Equivalent to --user=<my username>.
+   -n,--name          name_list
+   -p,--partition     part_list
+   -q,--qos           qos_list
+   -R,--reservation   reservation_name
+   -U,--user          username(s) of jobs to resume
+   -w,--nodelist      hostlist
+
+Actions
+   -o,--operation     scontrol(1) operation: resume, suspend, hold, release, ...
+   -a,--attribute     scontrol(1) update job: priority=, partition=, ...
+   -d,--dryrun        dryrun just showing squeue(1) output of selectors
+
+Modes
+   -V,--verbose       verbose mode
+
+Informational
+   -h,--help          display this help and exit
+   -u,--usage         display condensed description of options
+   -v,--version       output version information and exit
+EOF
+}
+###############################################################################
+#
+# main
+#
+source $(dirname $0)/.functions
+PARSE "$@"
+
+if [ "$VERBOSE" = TRUE ]
+then
+VERBOSE_KEYS='-v -x'
+cat 1>&2 <<EOF
+--------------------------------------------------------------------------------
+<INFO>$0:
+<INFO>OPERATION:   $OPERATION
+<INFO>ATTRIBUTE:   $ATTRIBUTE
+<INFO>VERBOSE:     $VERBOSE
+<INFO>USER:        $SCRIPT_USER
+<INFO>JOBS:        $OTHER
+<INFO>ACCOUNT:     $ACCOUNT
+<INFO>CLUSTERS:    $CLUSTERS
+<INFO>LICENSES:    $LICENSES
+<INFO>STATES:      $STATES
+<INFO>NAME:        $NAME
+<INFO>NODELIST:    $NODELIST
+<INFO>PARTITION:   $PARTITION
+<INFO>QOS:         $QOS
+<INFO>RESERVATION: $RESERVATION
+<INFO>DRYRUN:      $DRYRUN
+--------------------------------------------------------------------------------
+EOF
+else
+jVERBOSE_KEYS='-v -x'
+fi
+
+OPTIONS=''
+[ "$SCRIPT_USER" != '' ] && OPTIONS="$OPTIONS --user $SCRIPT_USER"
+[ "$ACCOUNT"     != '' ] && OPTIONS="$OPTIONS --account $ACCOUNT"
+[ "$CLUSTERS"    != '' ] && OPTIONS="$OPTIONS --clusters $CLUSTERS"
+[ "$LICENSES"    != '' ] && OPTIONS="$OPTIONS --licenses $LICENSES"
+[ "$STATES"      != '' ] && OPTIONS="$OPTIONS --states $STATES"
+[ "$NAME"        != '' ] && OPTIONS="$OPTIONS --name $NAME"
+[ "$NODELIST"    != '' ] && OPTIONS="$OPTIONS --nodelist $NODELIST"
+[ "$PARTITION"   != '' ] && OPTIONS="$OPTIONS --partition $PARTITION"
+[ "$QOS"         != '' ] && OPTIONS="$OPTIONS --qos $QOS"
+[ "$RESERVATION" != '' ] && OPTIONS="$OPTIONS --reservation $RESERVATION"
+
+if [ "$*" = "" ]; then
+   echo 'jobs'
+   squeue
+elif [ "$DRYRUN" = "TRUE" ]
+then
+   :
+cat <<EOF
+squeue $OPTIONS --job $OTHER
+EOF
+   squeue $OPTIONS --job $OTHER
+else
+   squeue $OPTIONS --noheader --format '%i' --job $OTHER |
+   (case "$OPERATION" in
+    cancel) ( set $VERBOSE_KEYS; xargs -iXX scancel XX) ;;
+    freeze) ( set $VERBOSE_KEYS; xargs -iXX scancel --signal SIGSTOP XX) ;;
+    thaw)   ( set $VERBOSE_KEYS; xargs -iXX scancel --signal SIGCONT XX) ;;
+    *)      ( set $VERBOSE_KEYS; xargs -iXX scontrol $OPERATION XX) ;;
+    esac
+   )
+fi
+###############################################################################
+exit
+###############################################################################

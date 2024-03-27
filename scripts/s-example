@@ -1,0 +1,2050 @@
+#!/bin/bash
+#@(#) (INFO-SLURM) :W: example Slurm job scripts and crib sheets
+###############################################################################
+function VERSION(){
+cat <<\EOF
+PRODUCT:        Slurm tools
+PROGRAM:        s-example
+DESCRIPTION:    example Slurm job scripts and crib sheets
+VERSION:        1.0, 2023-12-29
+AUTHOR:         John S. Urban
+REPORTING BUGS: http://www.urbanjost.altervista.org/
+HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+LICENSE:        MIT
+EOF
+}
+###############################################################################
+for NAME in ${*:-' '}
+do
+cat <<EOF
+=====================> $NAME
+EOF
+case "$NAME" in
+####################################################################################################################################
+1|squeue)
+cat <<\EOF
+squeue  -  view  information about jobs located in the Slurm scheduling queue.
+
+# list pending jobs sorted by priority
+
+    $ squeue -o '%.7i %.9Q %.9P %.8j %.8u %.8T %.10M %.11l %.8D %.5C %R' -S '-p' --state=pending | less
+
+# Print the jobs scheduled in the debug partition and  in  the  COMPLETED
+# state in the format with six right justified digits for the job id fol   
+# lowed by the priority with an arbitrary fields size:
+
+    $ squeue -p debug -t COMPLETED -o "%.6i %p"
+
+# Print the job steps in the debug partition sorted by user:
+
+    $ squeue -s -p debug -S u
+
+# Print information only about jobs 12345, 12346 and 12348:
+
+    $ squeue --jobs 12345,12346,12348
+
+# Print information only about job step 65552.1:
+
+    $ squeue --steps 65552.1
+EOF
+$0 squeue_format
+;;
+####################################################################################################################################
+2|sstat)
+cat <<\EOF
+# List status info for a currently running job
+sstat --format=AveCPU,AvePages,AveRSS,AveVMSize,JobID -j <jobid> --allsteps
+EOF
+;;
+####################################################################################################################################
+3|sacct)
+cat <<\EOF
+# sacct
+   The sacct command will show information about completed jobs which
+   can be helpful to see how much memory was used or how long a job ran,
+   for example.  <start date> can be in the form YYYY-MM-DD.
+
+       sacct -o jobid,jobname,start,end,NNodes,NCPUS,ReqMem,CPUTime,AveRSS,MaxRSS \
+             -S <start date> -E <end date> --user=<username> --units=G
+
+   To get a general idea of how efficiently a job utlized its resources,
+   the following format can be used:
+
+       sacct --jobs $SLURM_JOB_ID \
+       --Format=JobID,JobName,Elapsed,\
+       NCPUs,TotalCPU,CPUTime,\
+       ReqMem,MaxRSS,\
+       MaxDiskRead,MaxDiskWrite,\
+       State,ExitCode
+
+   Use this format to look at all jobs named 'julia-lang-ftw' that ran with
+   a wall time of at least 2 days and were killed for running out of memory
+   in the past 3 months:
+
+       sacct --name julia-lang-ftw --starttime $(date -d '3 months ago' +%D-%R)
+        --state OUT_OF_MEMORY --timelimit-min 2-00:00:00 \
+        --format JobID,JobName,Elapsed,NCPUs,TotalCPU,CPUTime,\
+        ReqMem,MaxRSS,MaxDiskRead,MaxDiskWrite,State,ExitCode
+
+EOF
+;;
+####################################################################################################################################
+4|sinfo)
+cat <<\EOF
+# Show busy/free cores for each partition
+sinfo -o "%R %C"
+
+# Show busy/free cores for each node
+sinfo -o "%n %T %C"
+
+# list all partition names
+sinfo --all --Format=PartitionName --noheader
+
+# show all non-responsive nodes
+sinfo -d
+
+sinfo --Format=All:
+
+All                Print all fields available in the -o format for this data type with a vertical bar separating each field.
+AllocNodes         Allowed allocating nodes.
+Cluster            Print the cluster name if running in a federation.
+Comment            Comment. (Arbitrary descriptive string)
+
+SocketCoreThread   Extended processor information: number of sockets, cores, threads (S:C:T) per node.
+Sockets            Number of sockets per node.
+CPUs               Number of CPUs per node.
+Cores              Number of cores per socket.
+CPUsLoad           CPU load of a node as reported by the OS.
+CPUsState          Number of CPUs by state in the format "allocated/idle/other/total".
+                   Do not use this with a node state option ("%t" or "%T") or the different node states
+                   will be placed on separate lines.
+MaxCPUsPerNode     The max number of CPUs per node available to jobs in the partition.
+Threads            Number of threads per core.
+
+DefaultTime        Default time for any job in the format "days-hours:minutes:seconds".
+Time               Maximum time for any job in the format "days-hours:minutes:seconds".
+TimeStamp          Print the timestamp of the reason a node is unavailable.
+
+Disk               Size of temporary disk space per node in megabytes.
+Extra              Arbitrary string on the node.
+Features           Features available on the nodes. Also see features_act.
+features_act       Features currently active on the nodes. Also see features.
+
+AllocMem           Prints the amount of allocated memory on a node.
+FreeMem            The total memory, in MB, currently free on the node as
+                   reported by the OS. This value is for informational use
+                   only and is not used for scheduling.
+Memory             Size of memory per node in megabytes.
+
+Gres               Generic resources (gres) associated with the nodes.
+GresUsed           Generic resources (gres) currently in use on the nodes.
+Groups             Groups which may use the nodes.
+
+NodeAddr           List of node communication addresses.
+NodeHost           List of node hostnames.
+NodeList           List of node names.
+Nodes              Number of nodes.
+
+Available          State/availability of a partition.
+StateCompact       State of nodes, compact form.
+StateLong          State of nodes, extended form.
+StateComplete      State of nodes, including all node state flags. e.g. "idle+cloud+power"
+Reason             The reason a node is unavailable (down, drained, or draining states).
+User               Print the user name of who set the reason a node is unavailable.
+UserLong           Print the user name and uid of who set the reason a node is unavailable.
+NodeAI             Number of nodes by state in the format "allocated/idle".
+                   Do not use this with a node state option ("%t" or "%T")
+                   or the different node states will be placed on separate
+                   lines.
+NodeAIOT           Number of nodes by state in the format "allocated/idle/other/total".
+                   Do not use this with a node state option ("%t" or "%T")
+                   or the different node states will be placed on separate lines.
+
+Partition          Partition name followed by "*" for the default partition, also see %R.
+PartitionName      Partition name, also see %P.
+Port               Node TCP port.
+
+OverSubscribe      Whether jobs may oversubscribe compute resources (e.g. CPUs).
+PreemptMode        Preemption mode.
+Root               Only user root may initiate jobs, "yes" or "no".
+
+PriorityJobFactor  Partition factor used by priority/multifactor plugin in calculating job priority.
+PriorityTier       or Priority Partition scheduling tier priority.
+Weight             Scheduling weight of the nodes.
+
+Size               Maximum job size in nodes.
+Version            Print the version of the running slurmd daemon.
+
+   format  label
+   %a      AVAIL
+   %A      NODES(A/I)
+   %b      ACTIVE_FEATURES
+   %B      MAX_CPUS_PER_NODE
+   %c      CPUS
+   %C      CPUS(A/I/O/T)
+   %d      TMP_DISK
+   %D      NODES
+   %e      FREE_MEM
+   %E      REASON
+   %f      AVAIL_FEATURES
+   %F      NODES(A/I/O/T)
+   %g      GROUPS
+   %G      GRES
+   %h      OVERSUBSCRIBE
+   %H      TIMESTAMP
+   %I      PRIO_JOB_FACTOR
+   %l      TIMELIMIT
+   %L      DEFAULTTIME
+   %m      MEMORY
+   %M      PREEMPT_MODE
+   %n      HOSTNAMES
+   %N      NODELIST
+   %o      NODE_ADDR
+   %O      CPU_LOAD
+   %p      PRIO_TIER
+   %P      PARTITION
+   %r      ROOT
+   %R      PARTITION
+   %s      JOB_SIZE
+   %S      ALLOCNODES
+   %t      STATE
+   %T      STATE
+   %u      USER
+   %U      USER
+   %v      VERSION
+   %V      CLUSTER
+   %w      WEIGHT
+   %X      SOCKETS
+   %Y      CORES
+   %Z      THREADS
+   %z      S:C:T
+EOF
+;;
+####################################################################################################################################
+5|single)
+cat <<\EOF
+#!/bin/bash
+# specify shell to use on first line
+# add -l to get login setup and execution of user prologue files
+#
+# EXAMPLE: single-core job with it's own allocation for sbatch
+#
+# job name (avoid non-alphnumeric characters, as is available as a macro in filenames)
+#SBATCH --job-name=hostname
+#
+# run a single task, using a single CPU core on a single node
+#SBATCH --nodes 1-1 --ntasks=1
+
+# maximum job time in D-HH:MM
+#SBATCH --time 0-0:0:10
+
+# maximum memory of 1 megabytes
+#SBATCH --mem-per-cpu=100mb # Job memory request
+
+#SBATCH --output=hostname.out.%J
+# job stderr file
+#SBATCH --error=hostname.err.%J
+
+# this overrides $SLURM_PARTITION but documentation says other way around
+#SBATCH --partition debug
+
+# do not export environment; so what does it get?
+# essentially, an empty environment
+#SBATCH --export=NONE
+
+# do not export shell limits
+#SBATCH --propagate=NONE
+
+## #SBATCH --reservation=MY_RESERVATION
+
+#
+#SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
+#SBATCH --mail-user=someone@comcast.net     # Where to send mail
+#
+################################################################################
+# no more directives after a non-blank non-comment line
+# show environment
+################################################################################
+# main
+#
+echo "Running on a single CPU core"
+# show process limits
+ulimit -a
+# turn on display of command expansion and command
+set -v -x
+
+# execute some stuff
+for (( i=0 ; i<=100 ; i=i+1 ))
+do
+   echo $i;sleep 1
+done
+
+# show regular environment set
+pwd;hostname
+env|grep -v '^SLURM_'
+# show SLURM_specific environment variables
+env|grep '^SLURM_'
+# sleep 3600
+EOF
+;;
+####################################################################################################################################
+6|references)
+cat <<\EOF
+External References
+
+  + [Slurm Quick reference guide]
+    (https://slurm.schedmd.com/pdfs/summary.pdf)
+    - two page document with common command references
+  + [schedmd.com Slurm Home Page]
+    (https://slurm.schedmd.com)
+    - full reference for Slurm user commands
+EOF
+;;
+####################################################################################################################################
+7|directories)
+cat <<\EOF
+The directories have to be large enough, have the right permissions,
+and have sufficient inodes and speed to handle the creation, changes,
+and deletion of many files. Space must be sufficient for all the jobs
+in a saved state and the log files and database. Typically be default
+
+StateSaveLocation       = /var/spool/slurmctld
+
+# find directories used in config area.
+scontrol show config|grep /
+
+AccountingStorageLoc    = /var/log/slurm_jobacct.log
+AccountingStorageTRES   = cpu,mem,energy,node,billing,fs/disk,vmem,pages
+AccountingStorageType   = accounting_storage/none
+AcctGatherEnergyType    = acct_gather_energy/none
+AcctGatherFilesystemType = acct_gather_filesystem/none
+AcctGatherInterconnectType = acct_gather_interconnect/none
+AcctGatherProfileType   = acct_gather_profile/none
+AuthType                = auth/munge
+CheckpointType          = checkpoint/none
+CoreSpecPlugin          = core_spec/none
+CredType                = cred/munge
+ExtSensorsType          = ext_sensors/none
+JobAcctGatherType       = jobacct_gather/none
+JobCheckpointDir        = /var/slurm/checkpoint
+JobCompLoc              = /var/log/slurm_jobcomp.log
+JobCompType             = jobcomp/none
+JobContainerType        = job_container/none
+LaunchType              = launch/slurm
+MailProg                = /bin/mail
+MCSPlugin               = mcs/none
+PluginDir               = /usr/lib/x86_64-linux-gnu/slurm-wlm
+PlugStackConfig         = /etc/slurm-llnl/plugstack.conf
+PreemptType             = preempt/none
+PriorityType            = priority/basic
+ProctrackType           = proctrack/cgroup
+ResumeRate              = 300 nodes/min
+RoutePlugin             = route/default
+SchedulerType           = sched/backfill
+SelectType              = select/cons_res
+SlurmctldLogFile        = /var/log/slurmctld.log
+SlurmdLogFile           = /var/log/slurmd.log
+SlurmdPidFile           = /var/run/slurmd.pid
+SlurmdSpoolDir          = /var/spool/slurmd
+SlurmctldPidFile        = /var/run/slurmctld.pid
+SLURM_CONF              = /etc/slurm-llnl/slurm.conf
+SuspendRate             = 60 nodes/min
+SwitchType              = switch/none
+TaskPlugin              = task/affinity,task/cgroup
+TmpFS                   = /tmp
+TopologyPlugin          = topology/none
+AllowedDevicesFile      = /etc/slurm-llnl/cgroup_allowed_devices_file.conf
+CgroupMountpoint        = /sys/fs/cgroup
+EOF
+;;
+####################################################################################################################################
+8|WIP)
+cat <<\EOF
+strigger
+
+   During system events causing job delays set triggers to extend job time?
+   Can root always excend the time limit on a job?
+
+   Use triggers to automatically log nodes going up and down to have a log
+   of boots?
+EOF
+;;
+####################################################################################################################################
+9|DISCUSS)
+cat <<\EOF
+#sacctmgr  - Used to view and modify Slurm account information.
+#salloc    - Obtain a Slurm job allocation (a set of nodes), execute a command, and then release the allocation when the command is finished.
+#sattach   - Attach to a Slurm job step.
+#sbcast    - transmit a file to the nodes allocated to a Slurm job.
+#scancel   - Used to signal jobs or job steps that are under the control of Slurm.
+#scontrol  - view or modify Slurm configuration and state.
+#sdiag     - Scheduling diagnostic tool for Slurm
+#sh5util   - Tool for merging HDF5 files from the acct_gather_profile plugin that gathers detailed data for jobs running under Slurm
+#slurm-wlm - Slurm Workload Manager overview.
+#smap      - graphically view information about Slurm jobs, partitions, and set configurations parameters.
+#sprio     -
+#sreport   - Generate reports from the slurm accounting data.
+#srun      -
+#sshare    -
+#sstat     -
+#strigger  - Used set, get or clear Slurm trigger information.
+#sview     - graphical user interface to view and modify Slurm state.
+#lamssi_boot
+#
+####################################################################################################################################
+#Terms and Examples
+# ALLOCATIONS
+# TASKS
+# job steps
+# RESERVATION
+# JOB ARRAY
+# submission scripts for parallel jobs
+# SALLOC vs SRUN vs SBATCH
+# job chunking
+# CHECKPOINTING
+# DEPENDENCIES
+# Custom Generic Resources and Licenses
+# QUALITY OF SERVICE (QOS)
+# prolog and epilogue including Lua interface
+# PRIORITY
+# ASSOCIATIONS
+# JOB PACKS
+# TRIGGERS
+# HELPERS
+# GRES Generic Resources -- dynamic values like a healthcheck code or to reserver for a specific use?
+# plugins
+# cluster FEDERATIONS
+# Healthchecks
+# BURST BUFFER
+# HETEROGENEOUS JOBS (jobs that contract/shrink and expand); and difference between that and multiple srun commands
+#      useful in particular for long-running pre and post-processing
+# ACCOUNTS and PROJECTS
+# API and "sinfo --json"
+# controlling exporting environment variables and shell limits, simulating login
+# SCRONTAB regularly scheduled jobs
+# limiting yourself by running in your allocation/reservation versus job array versus associations
+# potentially add WorkFlow Managers
+accounting,
+advanced reservation,
+gang scheduling (time sharing for parallel  jobs),
+backfill scheduling,
+resource limits  by user or bank account,
+and sophisticated multifactor job prioritization algorithms.
+# Configuring Slurm -- munge, accounting, adding users from passwd file, PAM module
+# the purpose of hidden partitions
+EOF
+;;
+####################################################################################################################################
+10|sbatch)
+cat <<\EOF
+## sbatch notes:
+
+sbatch allows for a filename pattern to contain one or more replacement
+symbols, which are a percent sign "%" followed by a letter (e.g. %j). An
+optional whole number may follow the percent sign to specify the length
+of numeric values. Values are zero-padded on the left as required to reach
+that length. The most common macros are
+
+    %x  Job name
+    %u  User name
+    %j  Job ID
+    %a  Job array Index
+
+Example:
+
+    #SBATCH --output=/scratch/%u/job%j.joblog
+
+Others
+    \\  Do not process any of the replacement symbols.
+    %%  The character "%".
+    %A  Job array's master job allocation number.
+    %J  jobid.stepid of the running job. (e.g. "128.0")
+    %s  stepid of the running job.
+    %N  short hostname. This will create a separate IO file per node.
+    %n  Node identifier relative to current job (e.g. "0" is
+           the first node of the running job) This will create a
+           separate IO file per node.
+    %t  task identifier (rank) relative to current job. This
+           will create a separate IO file per task.
+    %x  Job name.
+EOF
+;;
+####################################################################################################################################
+11|array)
+cat <<\EOF
+   A single job file may efficiently create an array of near-duplicate
+   jobs differing only in the value of a few environment variables,
+   primarily $SLURM_ARRAY_TASK_ID. The jobs may then use this variable to differentiate
+   the jobs ,often using the value in input filenames. The command line
+   is typically used for this parameter (--array), but it may be specified
+   as a #SBATCH directive as well. A self-imposed limit on the number
+   of concurrently running jobs may be specified.
+
+   The max size of a job array is specified as part of the Slurm configuration
+   file:
+
+       scontrol show config|grep -i maxarraysize
+       MaxArraySize=1001
+
+   Currently, values up to 4000001 are supported.
+
+   Other similar values may (or may not?) affect the maximum size of a
+   job array.
+
+       MaxJobCount=10000
+       MaxStepCount=40000
+
+   A job array is much more efficiently scheduled by Slurm than
+   individual file submittals.
+
+   Job arrays are efficiently managed as a collection of batch jobs.
+   Most Slurm commands can manage job arrays either as individual elements
+   (tasks) or as a single entity (e.g. delete an entire job array in a
+   single command)
+
+## Sample command line:
+
+    sbatch --array 10,20,30,40  # submit four copies of the job
+
+## Directives:
+
+    #Will submit job 5 times each with a different $SLURM_ARRAY_TASK_ID (1,2,3,4,5)
+    #SBATCH --array=1-5
+
+    # Will submit job 5 times each with a different $SLURM_ARRAY_TASK_ID (0,5,10,15,20)
+    #SBATCH --array=0-20:5
+
+    # Will submit 1 though to 100 jobs but no more than 10 at once.
+    #SBATCH --array=1-100%10
+
+## Output file notes
+
+For job arrays, the default output file name is "slurm-%A_%a.out", where
+"%A" is replaced by the job ID and "%a" with the array index.
+
+     #SBATCH --output=biganalysis-%A-%a.log    # Standard output and error log
+
+By default job error/output files overwrite any existing file of the
+same name. To allow multiple jobs to append to a single output file
+use the "--open-mode" parameter.
+
+     #SBATCH --open-mode=append|truncate
+
+## See Also:
+
+   + https://help.rc.ufl.edu/doc/SLURM_Job_Arrays
+
+# Environment variables
+
+$SLURM_ARRAY_TASK_ID  If this job is part of a job array, this will be set
+                      to the task ID. Otherwise it will not be
+                      set. To reference this specific task of a
+                      job array, combine SLURM_ARRAY_JOB_ID with
+                      SLURM_ARRAY_TASK_ID (e.g. scontrol update
+                      ${SLURM_ARRAY_JOB_ID}_{$SLURM_ARRAY_TASK_ID} ...);
+
+$SLURM_ARRAY_TASK_MAX  If this job is part of a job array, this will be
+                       set to the maximum task ID. Otherwise it will not
+                       be set.
+
+$SLURM_ARRAY_JOB_ID  If this job is part of a job array, this will be
+                     set to the job ID. Otherwise it will not be
+                     set. To reference this specific task of a
+                     job array, combine SLURM_ARRAY_JOB_ID with
+                     SLURM_ARRAY_TASK_ID (e.g. scontrol update
+                     ${SLURM_ARRAY_JOB_ID}_{$SLURM_ARRAY_TASK_ID} ...);
+
+$SLURM_ARRAY_TASK_COUNT  If this job is part of a job array, this will
+                         be set to the number of tasks in the
+                         array. Otherwise it will not be set.
+
+$SLURM_ARRAY_TASK_MIN  If this job is part of a job array, this will be
+                       set to the minimum task ID. Otherwise it will
+                       not be set.
+
+$SLURM_ARRAY_TASK_STEP  If this job is part of a job array, this will
+                        be set to the step size of task IDs. Otherwise
+                        it will not be set.
+
+scontrol update jobid=NNNN ArrayTaskThrottle=<count>
+
+              Specify the maximum number of tasks in a job array that
+              can execute at the same time. Set the count to zero in
+              order to eliminate any limit. The task throttle count
+              for a job array is reported as part of its ArrayTaskId
+              field, preceded with a percent sign.  For example
+              "ArrayTaskId=1-10%2"  indicates  the  maximum number of
+              running tasks is limited to 2.
+EOF
+# can you change a job not submitted as an array to an array (?)
+# once the job starts and splits into multiple jobs some values cannot be changed like time limit (?)
+;;
+####################################################################################################################################
+12|aaaaa)
+cat <<\EOF
+EOF
+;;
+####################################################################################################################################
+13|scancel)
+cat <<\EOF
+
+# CANCEL JOBS
+#  kill specified job numbers
+        scancel 1234 1235 1236
+## Cancel all pending jobs belonging to user "urbanjs" in  partition(ie. "queue")  "production"
+        scancel --state=PENDING --user=urbanjs --partition=production
+## Cancel only array ID 4 of job array 1237
+        scancel 1237_4
+## Cancel job(s) with specified name
+        scancel --name=radeng
+## See also
+        scancel --usage
+        scancel --help
+        man scancel
+
+# SUSPEND JOBS
+
+## for running jobs ...
+
+     scontrol suspend <job_list>       suspend specified job (see resume)
+
+## for pending jobs ...
+
+     #prevent specified job from starting. <job_list> is either a space separate list of job IDs or job names
+     scontrol hold <job_list>
+     scontrol uhold <job_list>   # place user hold on specified job (see hold)
+
+# RESUME  JOBS
+
+     scontrol resume <jobid_list>    resume previously suspended job
+     # resume jobs
+     scontrol release <job_list> # permit specified job to start (see hold)
+
+# REQUEUE JOBS
+
+     scontrol requeue <job_id>         re-queue a batch job
+     scontrol requeuehold <job_id>     re-queue and hold a batch
+EOF
+;;
+####################################################################################################################################
+14|array_schedmd)
+cat <<\EOF
+#!/bin/bash
+
+#SBATCH --array 1-10%5
+#SBATCH -o slurm-%a.out
+#SBATCH -e slurm-%a.err
+
+cat <<EXAMPLE
+#############################################
+### Job array example - templer@age.mpg.de
+### date $(date)
+### hostname $(hostname)
+### array ID ${SLURM_ARRAY_ID}
+### task ID  ${SLURM_ARRAY_TASK_ID}
+#############################################
+EXAMPLE
+
+The following is from the schedmd documentation for Slurm job arrays
+
+Job Array Support
+
+Overview
+
+   Job arrays offer a mechanism for submitting and managing collections of
+   similar jobs quickly and easily; job arrays with millions of tasks can
+   be submitted in milliseconds (subject to configured size limits). All
+   jobs must have the same initial options (e.g. size, time limit, etc.),
+   however it is possible to change some of these options after the job
+   has begun execution using the scontrol command specifying the JobID of
+   the array or individual ArrayJobID.
+$ scontrol update job=101 ...
+$ scontrol update job=101_1 ...
+
+   Job arrays are only supported for batch jobs and the array index values
+   are specified using the --array or -a option of the sbatch command. The
+   option argument can be specific array index values, a range of index
+   values, and an optional step size as shown in the examples below. Note
+   that the minimum index value is zero and the maximum value is a Slurm
+   configuration parameter (MaxArraySize minus one). Jobs which are part
+   of a job array will have the environment variable SLURM_ARRAY_TASK_ID
+   set to its array index value.
+# Submit a job array with index values between 0 and 31
+$ sbatch --array=0-31    -N1 tmp
+
+# Submit a job array with index values of 1, 3, 5 and 7
+$ sbatch --array=1,3,5,7 -N1 tmp
+
+# Submit a job array with index values between 1 and 7
+# with a step size of 2 (i.e. 1, 3, 5 and 7)
+$ sbatch --array=1-7:2   -N1 tmp
+
+   A maximum number of simultaneously running tasks from the job array may
+   be specified using a "%" separator. For example "--array=0-15%4" will
+   limit the number of simultaneously running tasks from this job array to
+   4.
+
+Job ID and Environment Variables
+
+   Job arrays will have two additional environment variable set.
+   SLURM_ARRAY_JOB_ID will be set to the first job ID of the array.
+   SLURM_ARRAY_TASK_ID will be set to the job array index value.
+   SLURM_ARRAY_TASK_COUNT will be set to the number of tasks in the job
+   array. SLURM_ARRAY_TASK_MAX will be set to the highest job array index
+   value. SLURM_ARRAY_TASK_MIN will be set to the lowest job array index
+   value. For example a job submission of this sort
+   sbatch --array=1-3 -N1 tmp
+   will generate a job array containing three jobs. If the sbatch command
+   responds
+   Submitted batch job 36
+   then the environment variables will be set as follows:
+   SLURM_JOB_ID=36
+   SLURM_ARRAY_JOB_ID=36
+   SLURM_ARRAY_TASK_ID=1
+   SLURM_ARRAY_TASK_COUNT=3
+   SLURM_ARRAY_TASK_MAX=3
+   SLURM_ARRAY_TASK_MIN=1
+   SLURM_JOB_ID=37
+   SLURM_ARRAY_JOB_ID=36
+   SLURM_ARRAY_TASK_ID=2
+   SLURM_ARRAY_TASK_COUNT=3
+   SLURM_ARRAY_TASK_MAX=3
+   SLURM_ARRAY_TASK_MIN=1
+   SLURM_JOB_ID=38
+   SLURM_ARRAY_JOB_ID=36
+   SLURM_ARRAY_TASK_ID=3
+   SLURM_ARRAY_TASK_COUNT=3
+   SLURM_ARRAY_TASK_MAX=3
+   SLURM_ARRAY_TASK_MIN=1
+
+   All Slurm commands and APIs recognize the SLURM_JOB_ID value. Most
+   commands also recognize the SLURM_ARRAY_JOB_ID plus SLURM_ARRAY_TASK_ID
+   values separated by an underscore as identifying an element of a job
+   array. Using the example above, "37" or "36_2" would be equivalent ways
+   to identify the second array element of job 36. A set of APIs has been
+   developed to operate on an entire job array or select tasks of a job
+   array in a single function call. The function response consists of an
+   array identifying the various error codes for various tasks of a job
+   ID. For example the job_resume2() function might return an array of
+   error codes indicating that tasks 1 and 2 have already completed; tasks
+   3 through 5 are resumed successfully, and tasks 6 through 99 have not
+   yet started.
+
+File Names
+
+   Two additional options are available to specify a job's stdin, stdout,
+   and stderr file names: %A will be replaced by the value of
+   SLURM_ARRAY_JOB_ID (as defined above) and %a will be replaced by the
+   value of SLURM_ARRAY_TASK_ID (as defined above). The default output
+   file format for a job array is "slurm-%A_%a.out". An example of
+   explicit use of the formatting is:
+   sbatch -o slurm-%A_%a.out --array=1-3 -N1 tmp
+   which would generate output files names of this sort "slurm-36_1.out",
+   "slurm-36_2.out" and "slurm-36_3.out". If these file name options are
+   used without being part of a job array then "%A" will be replaced by
+   the current job ID and "%a" will be replaced by 4,294,967,294
+   (equivalent to 0xfffffffe or NO_VAL).
+
+Scancel Command Use
+
+   If the job ID of a job array is specified as input to the scancel
+   command then all elements of that job array will be cancelled.
+   Alternately an array ID, optionally using regular expressions, may be
+   specified for job cancellation.
+# Cancel array ID 1 to 3 from job array 20
+$ scancel 20_[1-3]
+
+# Cancel array ID 4 and 5 from job array 20
+$ scancel 20_4 20_5
+
+# Cancel all elements from job array 20
+$ scancel 20
+
+# Cancel the current job or job array element (if job array)
+if [[-z $SLURM_ARRAY_JOB_ID]]; then
+  scancel $SLURM_JOB_ID
+else
+  scancel ${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}
+fi
+
+Squeue Command Use
+
+   When a job array is submitted to Slurm, only one job record is created.
+   Additional job records will only be created when the state of a task in
+   the job array changes, typically when a task is allocated resources or
+   its state is modified using the scontrol command. By default, the
+   squeue command will report all of the tasks associated with a single
+   job record on one line and use a regular expression to indicate the
+   "array_task_id" values as shown below.
+$ squeue
+ JOBID     PARTITION  NAME  USER  ST  TIME  NODES NODELIST(REASON)
+1080_[5-1024]  debug   tmp   mac  PD  0:00      1 (Resources)
+1080_1         debug   tmp   mac   R  0:17      1 tux0
+1080_2         debug   tmp   mac   R  0:16      1 tux1
+1080_3         debug   tmp   mac   R  0:03      1 tux2
+1080_4         debug   tmp   mac   R  0:03      1 tux3
+
+   An option of "--array" or "-r" has also been added to the squeue
+   command to print one job array element per line as shown below. The
+   environment variable "SQUEUE_ARRAY" is equivalent to including the
+   "--array" option on the squeue command line.
+$ squeue -r
+ JOBID PARTITION  NAME  USER  ST  TIME  NODES NODELIST(REASON)
+1082_3     debug   tmp   mac  PD  0:00      1 (Resources)
+1082_4     debug   tmp   mac  PD  0:00      1 (Priority)
+  1080     debug   tmp   mac   R  0:17      1 tux0
+  1081     debug   tmp   mac   R  0:16      1 tux1
+1082_1     debug   tmp   mac   R  0:03      1 tux2
+1082_2     debug   tmp   mac   R  0:03      1 tux3
+
+   The squeue --step/-s and --job/-j options can accept job or step
+   specifications of the same format.
+$ squeue -j 1234_2,1234_3
+...
+$ squeue -s 1234_2.0,1234_3.0
+...
+
+   Two additional job output format field options have been added to
+   squeue:
+   %F prints the array_job_id value
+   %K prints the array_task_id value
+   (all of the obvious letters to use were already assigned to other job
+   fields).
+
+Scontrol Command Use
+
+   Use of the "scontrol show -d job" option shows two new fields related to job
+   array support. The JobID is a unique identifier for the job. The
+   ArrayJobID is the JobID of the first element of the job array. The
+   ArrayTaskID is the array index of this particular entry, either a
+   single number of an expression identifying the entries represented by
+   this job record (e.g. "5-1024"). Neither field is displayed if the job
+   is not part of a job array. The optional job ID specified with the
+   scontrol show -d job or scontrol show step commands can identify job array
+   elements by specifying ArrayJobId and ArrayTaskId with an underscore
+   between them (e.g. <ArrayJobID>_<ArrayTaskId>).
+
+   The scontrol command will operate on all elements of a job array if the
+   job ID specified is ArrayJobID. Individual job array tasks can be
+   modified using the ArrayJobID_ArrayTaskID as shown below.
+$ sbatch --array=1-4 -J array ./sleepme 86400
+Submitted batch job 21845
+
+$ squeue
+ JOBID   PARTITION     NAME     USER  ST  TIME NODES NODELIST
+ 21845_1    canopo    array    david  R  0:13  1     dario
+ 21845_2    canopo    array    david  R  0:13  1     dario
+ 21845_3    canopo    array    david  R  0:13  1     dario
+ 21845_4    canopo    array    david  R  0:13  1     dario
+
+$ scontrol update JobID=21845_2 name=arturo
+$ squeue
+ JOBID   PARTITION     NAME     USER  ST   TIME  NODES NODELIST
+ 21845_1    canopo    array    david  R   17:03   1    dario
+ 21845_2    canopo   arturo    david  R   17:03   1    dario
+ 21845_3    canopo    array    david  R   17:03   1    dario
+ 21845_4    canopo    array    david  R   17:03   1    dario
+
+   The scontrol hold, uhold, release, requeue, requeuehold, suspend and
+   resume commands can also either operate on all elements of a job array
+   or individual elements as shown below.
+$ scontrol suspend 21845
+$ squeue
+ JOBID PARTITION      NAME     USER  ST TIME  NODES NODELIST
+21845_1    canopo    array    david  S 25:12  1     dario
+21845_2    canopo   arturo    david  S 25:12  1     dario
+21845_3    canopo    array    david  S 25:12  1     dario
+21845_4    canopo    array    david  S 25:12  1     dario
+$ scontrol resume 21845
+$ squeue
+ JOBID PARTITION      NAME     USER  ST TIME  NODES NODELIST
+21845_1    canopo    array    david  R 25:14  1     dario
+21845_2    canopo   arturo    david  R 25:14  1     dario
+21845_3    canopo    array    david  R 25:14  1     dario
+21845_4    canopo    array    david  R 25:14  1     dario
+
+scontrol suspend 21845_3
+$ squeue
+ JOBID PARTITION      NAME     USER  ST TIME  NODES NODELIST
+21845_1    canopo    array    david  R 25:14  1     dario
+21845_2    canopo   arturo    david  R 25:14  1     dario
+21845_3    canopo    array    david  S 25:14  1     dario
+21845_4    canopo    array    david  R 25:14  1     dario
+scontrol resume 21845_3
+$ squeue
+ JOBID PARTITION      NAME     USER  ST TIME  NODES NODELIST
+21845_1    canopo    array    david  R 25:14  1     dario
+21845_2    canopo   arturo    david  R 25:14  1     dario
+21845_3    canopo    array    david  R 25:14  1     dario
+21845_4    canopo    array    david  R 25:14  1     dario
+
+Job Dependencies
+
+   A job which is to be dependent upon an entire job array should specify
+   itself dependent upon the ArrayJobID. Since each array element can have
+   a different exit code, the interpretation of the afterok and afternotok
+   clauses will be based upon the highest exit code from any task in the
+   job array.
+
+   When a job dependency specifies the job ID of a job array:
+   The after clause is satisfied after all tasks in the job array start.
+   The afterany clause is satisfied after all tasks in the job array
+   complete.
+   The aftercorr clause is satisfied after the corresponding task ID in
+   the specified job has completed successfully (ran to completion with an
+   exit code of zero).
+   The afterok clause is satisfied after all tasks in the job array
+   complete successfully.
+   The afternotok clause is satisfied after all tasks in the job array
+   complete with at least one tasks not completing successfully.
+
+   Examples of use are shown below:
+# Wait for specific job array elements
+sbatch --depend=after:123_4 my.job
+sbatch --depend=afterok:123_4:123_8 my.job2
+
+# Wait for entire job array to complete
+sbatch --depend=afterany:123 my.job
+
+# Wait for corresponding job array elements
+sbatch --depend=aftercorr:123 my.job
+
+# Wait for entire job array to complete successfully
+sbatch --depend=afterok:123 my.job
+
+# Wait for entire job array to complete and at least one task fails
+sbatch --depend=afternotok:123 my.job
+
+Other Command Use
+
+   The following Slurm commands do not currently recognize job arrays and
+   their use requires the use of Slurm job IDs, which are unique for each
+   array element: sbcast, sprio, sreport, sshare and sstat. The sacct,
+   sattach and strigger commands have been modified to permit
+   specification of either job IDs or job array elements. The sview
+   command has been modified to permit display of a job's ArrayJobId and
+   ArrayTaskId fields. Both fields are displayed with a value of "N/A" if
+   the job is not part of a job array.
+
+System Administration
+
+   A new configuration parameter has been added to control the maximum job
+   array size: MaxArraySize. The smallest index that can be specified by a
+   user is zero and the maximum index is MaxArraySize minus one. The
+   default value of MaxArraySize is 1001. The maximum MaxArraySize
+   supported in Slurm is 4000001. Be mindful about the value of
+   MaxArraySize as job arrays offer an easy way for users to submit large
+   numbers of jobs very quickly.
+
+   The sched/backfill plugin has been modified to improve performance with
+   job arrays. Once one element of a job array is discovered to not be
+   runnable or impact the scheduling of pending jobs, the remaining
+   elements of that job array will be quickly skipped.
+
+   Slurm creates a single job record when a job array is submitted.
+   Additional job records are only created as needed, typically when a
+   task of a job array is started, which provides a very scalable
+   mechanism to manage large job counts. Each task of the job array will
+   share the same ArrayJobId but will have their own unique ArrayTaskId.
+   In addition to the ArrayJobId, each job will have a unique JobId that
+   gets assigned as the tasks are started.
+EOF
+;;
+####################################################################################################################################
+15|add_user)
+cat <<\EOF
+Notes on adding users and accounts
+
+Slurm Administration
+
+This page is intended to serve as a guide for Sysadmins who need to
+administrate the Slurm system running on the HPC cluster. If you're a
+regular user, this information probably won't be very interesting to you.
+Here is a Slurm quickstart from their developers:
+
+Accounts vs Users
+
+The Slurm accounting system separates the ideas of Accounts and Users,
+which is slightly confusing at first. When you look at it from the
+higher-level functioning of Slurm though, these concepts make sense.
+
+An Account is a method of controlling allowed resources and accounting
+for resources for a user or a group of users. For example, if you have
+a specific student group which you wanted to give elevated resource
+allowances to, you could create an Account for that group and attach
+their Users to that Account. Perhaps most importantly, names of Accounts
+are arbitrary, and don't have to match LDAP/Kerberos usernames.
+
+In contrast, a User is purely meant to map Linux accounts (pulled from
+LDAP) to a Slurm account. The usernames of Slurm Users MUST MATCH the
+person's username in LDAP.
+
+Account/User Creation
+
+Slurm must have a User registered in its accounting
+system for that user to be able to run jobs using Slurm. Since Slurm
+authenticates users based on their Linux username, no extra passwords
+or LDAP configuration is necessary; once a user has their account added
+to the Slurm database, they should be able to seamlessly connect to the
+login node using their normal credentials and be able to
+run Slurm jobs without extra authentication.
+
+sacctmgr is the tool used to manage Slurm users and accounts. To manage
+accounts, you must be root on any node of the cluster.
+
+Creating an Account
+
+As an example,
+since different users may have different resource requirements,
+you might have a policy where
+you create a different Account for each User who
+wants to use the cluster. To do so, you would run the following:
+
+   sacctmgr add Account (username)
+
+Creating a User
+
+After you've created a user's account, you can then add a User attached
+to that account:
+
+sacctmgr add User Accounts=(username) (username)
+
+Locally maintaining user lists can often be automated by winnowing names
+from /etc/password or a database. See sacctmgr(1) for other commands to
+delete or list current Slurm users.
+EOF
+;;
+####################################################################################################################################
+16|jobs_in_job)
+cat <<\EOF
+#!/bin/bash
+#
+# This  example shows a script in which Slurm is used to provide resource
+# management for a job by executing the various job steps  as  processors
+# become available for their dedicated use.
+#
+# jobs_in_job.bash
+#!/bin/bash
+#SBATCH --job-name=jobs_in_job  --export=NONE --propagate=NONE
+#SBATCH --nodes 3 --ntasks=1 --time 0-0:0:10 --mem-per-cpu=1mb
+#SBATCH --output=/tmp/job_in_job.out.%J
+#
+# This  example shows a script in which Slurm is used to provide resource
+# management for a job by executing the various job steps  as  processors
+# become available for their dedicated use.
+#
+# jobs_in_job.bash
+# Submit as follows:
+# sbatch -n3 -N1-1 jobs_in_job.bash
+# tail -f /tmp/job_in_job.out.*
+#
+################################################################################
+cat >job.sh <<\MAKEFILE
+#!/bin/bash
+#SBATCH --job-name=job_in_job  --export=NONE --propagate=NONE
+#SBATCH --nodes 1-1 --ntasks=1 --time 0-0:0:10 --mem-per-cpu=1mb
+#SBATCH --output=/tmp/job_in_job.out.%J
+for (( i=0 ; i<=100 ; i=i+1 ))
+do
+   echo "job_in_job $SLURM_ID $i";sleep 1
+done
+MAKEFILE
+################################################################################
+#
+srun -n2 --exclusive job.sh &
+srun -n1 --exclusive job.sh &
+srun -n1 --exclusive job.sh &
+srun -n1 --exclusive job.sh &
+srun -n1 --exclusive job.sh &
+wait
+EOF
+;;
+####################################################################################################################################
+17|memory)
+cat <<\EOF
+# SBATCH: Memory requests
+
+# Why to specify memory limits
+
+If you ask for more memory than your job requires and your job is not
+composed wholly of entire nodes your job or others that could use the
+idle resources will typically have scheduling delayed, perhaps indefinitely.
+
+Slurm may have a smaller default memory request but the initial memory
+limit for a job is all the memory on each node; which means even a single
+core job will reserve an entire node, often leading to many unused cores.
+
+If you are a member of a group with a memory limit (QOSGrpMemLimit) set
+hitting the aggregate group memory limit will cause jobs to pend as well.
+
+# Asking for all node memory
+
+If all you are running are parallel jobs that fill hosts requesting all the
+memory is typically acceptable, as no one else will be using it.
+To ensure your job is asking for all available memory use
+
+    #SBATCH --mem=0 # magic number asking for all node memory
+
+# Asking how much memory a node has
+
+Always leave some memory
+
+# How to request memory limits
+
+The SLURM directives for memory requests are
+
+       #SBATCH_MEM_PER_CPU    Same as --mem-per-cpu
+       #SBATCH_MEM_PER_GPU    Same as --mem-per-gpu
+       #SBATCH_MEM_PER_NODE   Same as --mem
+
+
+It is reasonable to request a little more memory than will be expected
+as job that exceed their memory limits are terminated. The
+overall user community requesting partial nodes will be able to run far more jobs if
+reasonable amounts of memory are requested/reserved.
+
+# How to query how much memory a job requested
+
+     scontrol show --details job NNNNN |grep -i mem
+
+# How to query how much memory a job used
+
+The email sent when a job finishes shows users how much memory the job
+actually used and can be used to adjust memory requests for future jobs.
+
+     sacct
+EOF
+;;
+####################################################################################################################################
+18|shebang)
+cat <<\EOF
+## bash -e or not bash -e
+
+Consider if you should be using using
+
+    #!/bin/bash -e
+
+instead of plain
+
+    #!/bin/bash
+
+The -e option causes the failure of any command within the job script
+to cause your job to stop immediately rather than attempting to continue on
+with an unexpected environment or erroneous intermediate data.
+
+It also ensures that your failed jobs show a status of FAILED in sacct(1)
+output.
+## bash -l or --login
+
+    #!/bin/bash -login
+
+Most shells have a "login" switch. If you want the environment in you batch job
+to be the same as would be generated by a login  (run dot files, define csh aliases,
+go through system /etc/ prologue scripts, ....) add the --login switch to the bash(1)
+shebang line.  Check other shells for an equivalent switch.
+EOF
+;;
+####################################################################################################################################
+19|sharing)
+cat <<\EOF
+# USER: providing data to others -- group file permissions and messages
+
+## Group permissions on output and log files
+
+If your system does not support ACLs(Access Control List)s and you need
+to share files from jobs with your group a directory with the group
+sticky bit may provide a better method than individual cp(1), chmod(1),
+and chown(1) commands.
+
+Sometimes files need accessed by other members of your group. If you
+have a *nix group defined with the appropriate members you can set a
+directory up on most systems so files created there are automatically
+accessible by the group. Then a batch job that specifies its log file is
+in that directory can be accessed by the group members. In general keep all
+your files as private as possible, but if you need others to be able to
+watch a jobs' progression this is a simple method assuming an appropriate
+group exists.
+
+    chmod ug+s $DIRECTORY_NAME/  # set set-group-ID bit in inode(7)
+
+## job messages and comments
+
+You can also send messages to the output file and change job
+comments as the job progresses that others can see.
+
+    # this can be done from within the job or by external
+    # scripts or users
+    scontrol update job=NNNNN Comment='completed stage 3'
+
+    # show job comments
+    scontrol show --details job=NNNNN
+    # you would typically want additional fields
+    # see "man squeue" for more details
+    squeue --Format=Comment
+
+If you use srun(1) in your jobs you can tell how far the job has
+progressed as well.
+
+## e-mail
+The srun(1) and sbatch(1) commands have options to send e-mail messages when
+job state changes occurr:
+
+     --mail-type=<type>
+        Notify user by email when certain event types occur.  Valid type
+        values  are  NONE, BEGIN, END, FAIL, REQUEUE, ALL (equivalent to
+        BEGIN, END, FAIL, INVALID_DEPEND, REQUEUE, and  STAGE_OUT),  IN
+        VALID_DEPEND (dependency never satisfied), STAGE_OUT (burst buf
+        fer stage out and teardown completed), TIME_LIMIT, TIME_LIMIT_90
+        (reached  90  percent  of time limit), TIME_LIMIT_80 (reached 80
+        percent of time limit), and TIME_LIMIT_50 (reached 50 percent of
+        time  limit).   Multiple type values may be specified in a comma
+        separated list.  The user  to  be  notified  is  indicated  with
+        --mail-user. This option applies to job allocations.
+
+     --mail-user=<user>
+        User  to  receive email notification of state changes as defined
+        by --mail-type.  The default value is the submitting user.  This
+        option applies to job allocations.
+EOF
+;;
+####################################################################################################################################
+20|output)
+cat <<\EOF
+# SLURM: std files
+
+## std files
+
+   For sbatch(1) jobs The stderr and stdout of the job default to being
+   written to a single file in the directory where the job was submitted.
+
+   For job arrays, the default file name is "slurm-%A_%a.out", "%A" is
+   replaced by the job ID and "%a" with the array index. For other jobs,
+   the default file name is "slurm-%j.out", where the "%j" is replaced
+   by the job ID (allocation number).
+
+
+   See the filename pattern section below for filename specification options.
+
+   This default can be overridden by setting the environment variables
+
+       command    variable_name        equivalent command option
+       srun       SRUN_ERROR         -e, --error
+       srun       SRUN_INPUT         -i, --input
+       srun       SRUN_OUTPUT        -o, --output
+       sbatch     SBATCH_OUTPUT      -o, --output
+       sbatch     SBATCH_ERROR       -e, --error
+       sbatch     SBATCH_INPUT       -i, --input
+
+   For batch scripts a default may be specified as a directive as well.
+
+        #SBATCH --output
+        #SBATCH --error
+
+   Instead of generating a seperate output for each job you may specify
+   that the output appends to an existing job.  (thread safe? Any way
+   to prefix output with the jobid?)
+
+--open-mode={append|truncate}
+
+   Open the output and error files using append or truncate mode as
+   specified. For heterogeneous job steps the default value is
+   "append". Otherwise the default value is specified by the sys
+   tem configuration parameter JobFileAppend. This option applies
+   to job and step allocations.
+
+        -o, --output=<filename_pattern>
+        Specify the "filename pattern" for stdout redirection. By default
+        in  interactive mode, srun collects stdout from all tasks
+        and sends this output via TCP/IP to the attached terminal.  With
+        --output stdout may  be  redirected to a file, to one file per
+        task, or to /dev/null. See section IO Redirection below for  the
+        various  forms  of  filename pattern.  If the specified file al
+        ready exists, it will be overwritten.
+
+        If --error is not also specified on the command line, both  std
+        out  and stderr will directed to the file specified by --output.
+        This option applies to job and step allocations.
+
+## filename pattern
+
+    srun allows for a filename pattern to be used to generate the
+    named IO  file described above. The following list of format
+    specifiers may be used in the format  string  to  generate  a
+    filename  that will be unique to a given jobid, stepid, node,
+    or task. In each case, the appropriate number of  files  are
+    opened and associated with the corresponding tasks. Note that
+    any format string containing %t, %n, and/or %N will be  writ
+    ten on the node executing the task rather than the node where
+    srun executes, these format specifiers are not supported on a
+    BGQ system.
+
+          \\  Do not process any of the replacement symbols.
+          %%  The character "%".
+          %A  Job array's master job allocation number.
+          %a  Job array ID (index) number.
+          %J  jobid.stepid of the running job. (e.g. "128.0")
+          %j  jobid of the running job.
+          %s  stepid of the running job.
+          %N  short hostname. This will create a separate IO file
+              per node.
+          %n  Node identifier relative to current job (e.g. "0" is
+              the first node of the running job) This will create a
+              separate IO file per node.
+          %t  task identifier (rank) relative to current job. This
+              will create a separate IO file per task.
+          %u  User name.
+          %x  Job name.
+
+    A number placed between the percent character and format specifier
+    may be used to zero-pad the result in the IO filename to at minimum
+    of specified numbers. This number is ignored if the format specifier
+    corresponds to non-numeric data (%N for example). The maximal number
+    is 10, if a value greater than 10 is used the result is padding up
+    to 10 characters.  Some examples of how the format string may be
+    used for a 4 task job step with a JobID of 128 and step id of 0 are
+    included below:
+
+          job%J.out job128.0.out
+          job%4j.out job0128.out
+          job%2j-%2t.out job128-00.out, job128-01.out, ...
+
+## Getting stdout and stderr path names
+
+    To not have to call Slurm commands such as scontrol(1) and squeue(1)
+    (and because not all macros are expanded by those commands) the
+    realpath(1) command and the /proc interface are good solutions for
+    obtaining the full pathnames of the standard files so the job
+    itself and not epilog or post-processing after job completion can
+    be used on the output files.
+
+    In bash(1) to set the variable name
+
+        export SLURM_STDIN=$(realpath /proc/$SLURM_TASK_PID/fd/0)
+        export SLURM_STDOUT=$(realpath /proc/$SLURM_TASK_PID/fd/1)
+        export SLURM_STDERR=$(realpath /proc/$SLURM_TASK_PID/fd/2)
+
+        # example uses
+        scp $SLURM_STDOUT  othernode:/project/.
+        mailx -s "job $SLURM_JOB_ID" $USER < $SLURM_STDOUT
+        mv $SLURM_STDOUT  /jobs/output/${USER}_S{LURM_JOBID}_${SLURM_JOB_NAME}.out
+
+## Concerns
+
+   The files will be generated by the first node of the job
+   allocation. Other than the batch script itself, Slurm does no automated
+   movement of user files.
+
+   So for a low number of jobs you generally want to make sure
+   the pathnames specified implicitly or explicitly are on a shared
+   filesystem visible to any potential headnode of the jobs. The output
+   file will otherwise be generated on a local device only visible from
+   the headnode of the job.
+
+   If you do generate it on a local device
+   for performance or space reasons remember to copy it to centralized
+   permanent storage or post-process it. Note that in particular on many
+   HPC systems local files are removed after a job terminates.
+
+### Consider whether local resources might be exausted by job output
+
+   When running large numbers of jobs consider if the system will
+   be impacted by the concurrent number of files open in a single
+   directory. Is there sufficient space and inodes available? Will the
+   output saturate a network and possibly slow down other cluster jobs?
+   For performance reasons it may be desirable to write output to a
+   local file and copy it at job termination to longterm storage.
+
+### Redirection of unneeded output
+
+   Sometimes certain tasks that generate output that will only be used
+   during the time the job exists should be written as binary files to
+   local devices, particularly memory-resident file systems. In some
+   cases output might even be redirected to /dev/null, although turning
+   off unneeded information is preferable if the applications have such
+   an option.
+
+## Reassign input and output to other files
+
+   You may reassign the stdout of a running task using sattach(1).
+
+## SEE ALSO
+
+  + s-peek - display Slurm job script, job parameters, and job output
+               for specified job IDs. s-peek --help provides more
+               information.
+
+EOF
+;;
+####################################################################################################################################
+21|explore)
+cat <<\EOF
+#!/bin/bash
+# specify shell to use on first line
+# add -l to get login setup and execution of user prologue files
+#
+# EXAMPLE: single-core job with it's own allocation for sbatch
+#
+# job name (avoid non-alphnumeric characters, as is available as a macro in filenames)
+#SBATCH --job-name=explore
+#
+# run a single task, using a single CPU core on a single node
+#SBATCH --nodes 1-1 --ntasks=1
+
+# maximum job time in D-HH:MM
+#SBATCH --time 1-0:0:10
+
+# maximum memory of 1 megabytes
+#SBATCH --mem-per-cpu=100mb # Job memory request
+
+# default directory is directory job was submitted from, which should be visible
+# to all the compute nodes
+#SBATCH --output=hostname.out.%J
+# job stderr file
+#SBATCH --error=hostname.err.%J
+
+# this overrides $SLURM_PARTITION but documentation says other way around
+#SBATCH --partition debug
+
+# do not export environment; so what does it get?
+#SBATCH --export=NONE
+
+# do not export shell limits
+#SBATCH --propagate=NONE
+
+## #SBATCH --reservation=MY_RESERVATION
+
+##SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)
+##SBATCH --mail-user=someone@comcast.net     # Where to send mail
+#
+################################################################################
+# no more directives after a non-blank non-comment line
+# show environment
+################################################################################
+# main
+#
+echo "Running on a single CPU core"
+# show process limits
+ulimit -a
+# turn on display of command expansion and command
+set -v -x
+
+# execute some stuff
+for (( i=0 ; i<=10 ; i=i+1 ))
+do
+   echo $i;sleep 1
+done
+
+# show regular environment set
+pwd;hostname
+env|grep -v '^SLURM_'
+# show SLURM_specific environment variables
+env|grep '^SLURM_'
+scontrol show --details jobid=$SLURM_JOB_ID
+
+export SLURM_STDOUT=$( realpath --canonicalize-existing /proc/$$/fd/1)
+export SLURM_STDOUT=$( realpath --canonicalize-existing /proc/$SLURM_TASK_PID/fd/1)
+sleep 3600
+EOF
+;;
+####################################################################################################################################
+22|environment)
+cat <<\EOF
+# Environment variables
+
+   Slurm provides several environment variables which can be put to use
+   in your submit script. For a full list of available variables, see the
+   sbatch(1) man-page, section titled 'OUTPUT ENVIRONMENT VARIABLES'.
+
+   SLURM_JOB_NODELIST
+
+   This variable provides a list of nodes that are allocated to your job.
+   The nodes are listed in a compact form, for example 'b-cn[0001,0100-0102]'
+   which specifies the nodes:
+
+      * b-cn0001
+      * b-cn0100
+      * b-cn0102
+
+   **Here is how to expand such a compact list** to full names on separate
+   lines in bash(1) shells.
+
+       scontrol show --details hostnames "$(xargs <<<$SLURM_JOB_NODELIST)"
+
+   Note the command is just performing a string manipulation so the expanded
+   node names are not required to exist.
+
+   Leading zeros can be used to specify the minimum length of the numbers
+   in a range:
+
+       scontrol show hostnames 'pgh[0001-20,0100,0200]'|xargs -n 10
+
+# ALL VARIABLES
+
+   the man-page for sbatch(1) describes move of the variables in
+   detail. All the SLURM_* variables name suffixes are:
+
+         ARRAY_JOB_ID             ARRAY_TASK_COUNT   ARRAY_TASK_ID    ARRAY_TASK_MAX
+         ARRAY_TASK_MIN           ARRAY_TASK_STEP    CLUSTER_NAME     CLUSTERS
+         CONF                     CONTAINER          CONTAINER_ID     CPU_FREQ_REQ
+         CPUS_ON_NODE             CPUS_PER_GPU       CPUS_PER_TASK    DEBUG_FLAGS
+         DIST_PLANESIZE           DISTRIBUTION       EXIT_ERROR       EXPORT_ENV
+         GPU_BIND                 GPU_FREQ           GPUS             GPUS_ON_NODE
+         GPUS_PER_NODE            GPUS_PER_SOCKET    GPUS_PER_TASK    GTIDS
+         HET_SIZE                 HINT               HOSTFILE         JOB_ACCOUNT
+         JOB_CPUS_PER_NODE        JOB_DEPENDENCY     JOB_END_TIME     JOB_GPUS
+         JOB_ID                   JOBID              JOB_NAME         JOB_NODELIST
+         JOB_NODELIST)            JOB_NUM_NODES      JOB_PARTITION    JOB_QOS
+         JOB_RESERVATION          JOB_START_TIME     LOCALID          MEM_BIND
+         MEM_BIND_LIST            MEM_BIND_PREFER    MEM_BIND_SORT    MEM_BIND_TYPE
+         MEM_BIND_VERBOSE         MEM_PER_CPU        MEM_PER_GPU      MEM_PER_NODE
+         NNODES                   NODEID             NODELIST         NO_KILL
+         NPROCS                   NTASKS             NTASKS_PER_CORE  NTASKS_PER_GPU
+         NTASKS_PER_NODE          NTASKS_PER_SOCKET  OVERCOMMIT       PRIO_PROCESS
+         PROCID                   PROFILE            RESTART_COUNT    SHARDS_ON_NODE
+         STEP_KILLED_MSG_NODE_ID  SUBMIT_DIR         SUBMIT_HOST      TASK_PID
+         TASKS_PER_NODE           THREADS_PER_CORE   TOPOLOGY_ADDR    TOPOLOGY_ADDR_PATTERN
+         TRES_PER_TASK            UMASK
+
+EOF
+;;
+####################################################################################################################################
+23|state)
+cat <<\EOF
+## Query the state of the job
+
+   To see the Slurm state information for the job use
+
+       scontrol show --details jobid=$JOBID
+
+   Note that the name of the stderr and stdout files (with unexpanded macros)
+   are present in the job state information
+
+   ## replicate the input script of a job
+   To see the input deck for a job you can use the scontrol(1) write
+   subcommand.
+
+USAGE:
+
+       squeue # list job numbers of current queue
+       # write specified job to stdout
+       scontrol write batch_script $JOBID $OPTIONAL_FILENAME
+
+   The file will default to slurm-<job_id>.sh if the optional filename
+   argument is not given. The script will be written to stdout if - is
+   given instead of a filename. The batch script can only be retrieved by
+   an admin or operator, or by the owner of the job.
+
+   In addition, the input scripts are typically placed in
+   /var/spool/slurmd on the head execution node while the job is running.
+
+   While the job is present in Slurm job information is also in the area
+   reserved for saving the current Slurm State.
+
+   The locations are controlled by configuration parameters typically in
+   /etc/slurm-llnl/slurm.conf:
+
+       SlurmdSpoolDir=/var/spool/slurmd.spool
+       StateSaveLocation=/var/spool/slurm.state
+EOF
+;;
+####################################################################################################################################
+24|profiling)
+# Profiling
+## using Slurm commands
+## using cgroups
+## using plugins
+cat <<\EOF
+EOF
+;;
+####################################################################################################################################
+25|squeue_format)
+cat <<\EOF
+--format versus --Format
+----------------------|-----|---------------------|
+HEADER                |  %  |  name               |
+===================================================
+ID:                                               |
+JOBID                 |  i  |  JobID              |
+JOBID                 |  A  |  JobArrayID         |
+USER                  |  u  |  UserName           |
+UID                   |  U  |  UserID             |
+NAME                  |  j  |  Name               |
+ARRAY_JOB_ID          |  F  |  ArrayJobID         |
+ARRAY_TASK_ID         |  K  |  ArrayTaskID        |
+===================================================
+Files:                                            |
+COMMAND               |  o  |  Command            |
+WORK_DIR              |  Z  |  WorkDir            |
+STDERR                |  -  |  STDERR             |
+STDIN                 |  -  |  STDIN              |
+STDOUT                |  -  |  STDOUT             |
+===================================================
+Priority:                                         |
+QOS                   |  q  |  QOS                |
+PRIORITY              |  p  |  Priority           |
+PRIORITY              |  Q  |  PriorityLong       |
+NICE                  |  y  |  Nice               |
+===================================================
+Requested:                                        |
+ACCOUNT               |  a  |  Account            |
+DEPENDENCY            |  E  |  Dependency         |
+LICENSES              |  W  |  Licenses           |
+PARTITION             |  P  |  Partition          |
+RESERVATION           |  v  |  Reservation        |
+WCKEY                 |  w  |  WCKey              |
+===================================================
+Time:                                             |
+ACCRUE_TIME           |  -  |  AccrueTime         |
+ELIGIBLE_TIME         |  -  |  EligibleTime       |
+END_TIME              |  e  |  EndTime            |
+-                     |  -  |  PendingTime        |
+PREEMPT_TIME          |  -  |  PreemptTime        |
+RESIZE_TIME           |  -  |  ResizeTime         |
+START_TIME            |  S  |  StartTime          |
+SUBMIT_TIME           |  V  |  SubmitTime         |
+TIME_LEFT             |  L  |  TimeLeft           |
+TIME_LIMIT            |  l  |  TimeLimit          |
+TIME_MIN              |  -  |  MinTime            |
+TIME                  |  M  |  TimeUsed           |
+===================================================
+Hardware:                                         |
+S:C:T                 |  z  |  SCT                |
+CORE_SPEC             |  X  |  CoreSpec           |
+CORES_PER_SOCKET      |  I  |  Cores              |
+BOARDS_PER_NODE       |  -  |  BoardsPerNode      |
+CPUS                  |  C  |  NumCPUs            |
+CPUS_PER_TASK         |  -  |  cpus-per-task      |
+CPUS_PER_TRES         |  -  |  cpus-per-tres      |
+MIN_CPUS              |  c  |  MinCpus            |
+MAX_CPUS              |  -  |  MaxCPUs            |
+MAX_NODES             |  -  |  MaxNodes           |
+SOCKETS_PER_BOARD     |  -  |  SPerBoard          |
+SOCKETS_PER_NODE      |  H  |  Sockets            |
+THREADS_PER_CORE      |  J  |  Threads            |
+-                     |  -  |  CPUFreq            |
+===================================================
+MIN_MEMORY            |  m  |  MinMemory          |
+MIN_TMP_DISK          |  d  |  MinTmpDisk         |
+===================================================
+State:                                            |
+STATE                 |  T  |  State              |
+ST                    |  t  |  StateCompact       |
+REASON                |  r  |  Reason             |
+REQUEUE               |  -  |  Requeue            |
+RESTART_COUNT         |  -  |  RestartCnt         |
+BATCH_FLAG            |  -  |  BatchFlag          |
+OVER_SUBSCRIBE        |  h  |  OverSubscribe      |
+CONTIGUOUS            |  O  |  Contiguous         |
+EXIT_CODE             |  -  |  exit_code          |
+===================================================
+Nodes:                                            |
+REQ_NODES             |  n  |  ReqNodes           |
+NODELIST              |  N  |  NodeList           |
+NODELIST(REASON)      |  R  |  ReasonList         |
+-                     |  -  |  Nodes              |
+NODES                 |  D  |  NumNodes           |
+ALLOC_NODES           |  -  |  AllocNodes         |
+EXC_NODES             |  x  |                     |
+EXEC_HOST             |  B  |  BatchHost          |
+===================================================
+COMMENT               |  k  |  Comment            |
+SYSTEM_COMMENT        |  -  |  system_comment     |
+ADMIN_COMMENT         |  -  |  admin_comment      |
+===================================================
+ACTIVE_SIBLINGS_RAW   |  -  |  SiblingsActiveRaw  |
+ACTIVE_SIBLINGS       |  -  |  SiblingsActive     |
+ALLOC_SID             |  -  |  AllocSID           |
+ASSOC_ID              |  -  |  AssocID            |
+BURST_BUFFER          |  -  |  BurstBuffer        |
+BURST_BUFFER_STATE    |  -  |  BurstBufferState   |
+CLUSTER               |  -  |  Cluster            |
+CLUSTER_FEATURES      |  -  |  ClusterFeature     |
+-                     |  -  |  Container          |
+-                     |  -  |  ContainerID        |
+DEADLINE              |  -  |  Deadline           |
+DELAY_BOOT            |  -  |  DelayBoot          |
+DERIVED_EC            |  -  |  DerivedEC          |
+FEATURES              |  f  |  Feature            |
+GROUP                 |  G  |  GroupID            |
+GROUP                 |  g  |  GroupName          |
+-                     |  -  |  HetJobID           |
+-                     |  -  |  HetJobIDSet        |
+-                     |  -  |  HetJobOffset       |
+LAST_SCHED_EVAL       |  -  |  LastSchedEval      |
+MCSLABEL              |  -  |  MCSLabel           |
+MEM_PER_TRES          |  -  |  mem-per-tres       |
+NETWORK               |  -  |  Network            |
+NTASKS_PER_BOARD      |  -  |  NTPerBoard         |
+NTASKS_PER_CORE       |  -  |  NTPerCore          |
+NTASKS_PER_NODE       |  -  |  NTPerNode          |
+NTASKS_PER_SOCKET     |  -  |  NTPerSocket        |
+ORIGIN                |  -  |  Origin             |
+ORIGIN_RAW            |  -  |  OriginRaw          |
+-                     |  -  |  Prefer             |
+PROFILE               |  -  |  Profile            |
+REBOOT                |  -  |  Reboot             |
+REQ_SWITCH            |  -  |  ReqSwitch          |
+-                     |  -  |  ResvPort           |
+-                     |  -  |  StepID             |
+-                     |  -  |  StepName           |
+-                     |  -  |  StepState          |
+TASKS                 |  -  |  NumTasks           |
+TRES_ALLOC            |  -  |  tres-alloc         |
+TRES_BIND             |  -  |  tres-bind          |
+TRES_FREQ             |  -  |  tres-freq          |
+TRES_PER_JOB          |  -  |  tres-per-job       |
+TRES_PER_NODE         |  -  |  tres-per-node      |
+TRES_PER_SOCKET       |  -  |  tres-per-socket    |
+-                     |  -  |  tres-per-step      |
+TRES_PER_TASK         |  -  |  tres-per-task      |
+VIABLE_SIBLINGS       |  -  |  SiblingsViable     |
+VIALBLE_SIBLINGS_RAW  |  -  |  SiblingsViableRaw  |
+WAIT4SWITCH           |  -  |  Wait4Switch        |
+===================================================
+EOF
+;;
+####################################################################################################################################
+26|reservation)
+cat <<\EOFEX
+
+An example of creating a long-term reservation for a list of users of
+a specific number of nodes.
+
+Overflow is allowed so that if resources are free jobs targeting the
+reservation can use non-reserved nodes because the FLEX flag is set.
+
+You cannot create a non-maintenance node reservation if resources are
+not free unless the flag IGNORE_JOBS is set to ignore the currently
+running jobs.
+
+It is unclear how the nodes are then selected. Is it the ones that are
+likely to clear the soonest?
+
+The reservation cannot be deleted until empty so instead of deleting
+it you can change the endtime to "now" so it goes away as soon as the
+jobs finish.
+
+Jobs will not be terminated if you change the change the endtime because
+The flag NO_HOLD_JOBS_AFTER_END allows the jobs in the queue asking
+for the reservation to continue running or schedule as if they were not
+asking for the queue; but note that new jobs asking for a non-existent
+reservation will fail.
+
+  # fails if reserved nodes have a job on them
+  scontrol delete reservation=NAME 
+  # change endttime to current time 
+  scontrol update reservation=NAME flags=+no_hold_jobs_after_end endtime=now
+
+Note that an "infinite" duration appears to convert to one year.
+
+If not specified The default name will the the first user listed plus
+a numeric suffix which is prefixed with an underscore so I would 
+recommend you use a reservation via the argument on the sbatch(1) command
+or an environment variable so the submit script itself does not need
+changed so submit it.
+
+   # environment variable equivalent to #SBATCH --reservation
+   env SBATCH_RESERVATION=NAME sbatch FILE || sbatch FILE 
+   sbatch FILE --reservation NAME || sbatch FILE  
+
+#!/bin/bash
+###############################################################################
+scontrol create reservation=NAME             \
+   starttime=now duration=infinite           \
+   users=urbanjs,root                        \
+   PartitionName=express                     \
+   flags=no_hold_jobs_after_end,replace_down,flex  \
+   NodeCnt=1 ||
+scontrol create reservation=NAME             \
+   starttime=now duration=infinite           \
+   users=urbanjs,root                        \
+   PartitionName=express                     \
+   flags=ignore_jobs,no_hold_jobs_after_end,replace_down,flex  \
+   NodeCnt=1
+
+# display current reservations
+scontrol show reservation  # show all reservations
+scontrol show reservation=NAME
+###############################################################################
+exit
+###############################################################################
+EOFEX
+;;
+####################################################################################################################################
+27|nodes)
+cat <<\EOFEX
+# SLURM: care and feeding of a node
+
+## show information about node state
+
+    scontrol show node=mercury
+    scontrol show -a node=mercury 
+
+    # show all node information
+    scontrol --all show nodes
+
+## close a node to new jobs
+
+    scontrol update NodeName=mercury State=DRAIN
+
+## open a node to new jobs
+
+    scontrol update NodeName=mercury State=IDLE
+
+## close a node for maintenance with a reason
+
+    export INITIALS=JSU  # a local convention for adminstrators all logged in under root 
+    # reason should identify admin who closed it and date 
+    scontrol update NodeName=mercury State=FAILING Reason="bad IB board:${INITIALS:-${SUDO_USER:-$USER}}:$(date)"
+
+## list jobs on a node
+
+    sinfo --nodes=mercury
+
+sinfo (1) - view information about Slurm nodes and partitions.
+
+## kill jobs running on a node
+
+    scancel --nodelist=mercury
+EOFEX
+;;
+####################################################################################################################################
+28|format)
+cat <<\EOFEX
+
+squeue --format:
+
+%A) JOBID             %u) USER              %P) PARTITION         %a) ACCOUNT         %g) GROUP
+%j) NAME              %D) NODES             %C) CPUS              %c) MIN_CPUS        %z) S:C:T
+%H) SOCKETS_PER_NODE  %I) CORES_PER_SOCKET  %J) THREADS_PER_CORE  %B) EXEC_HOST       %N) NODELIST
+%x) EXC_NODES         %n) REQ_NODES         %Y) SCHEDNODES        %X) CORE_SPEC       %d) MIN_TMP_DISK
+%m) MIN_MEMORY        %V) SUBMIT_TIME       %S) START_TIME        %e) END_TIME        %M) TIME
+%l) TIME_LIMIT        %L) TIME_LEFT         %T) STATE             %q) QOS             %Q) PRIORITY
+%p) PRIORITY          %y) NICE              %r) REASON            %v) RESERVATION     %E) DEPENDENCY
+%W) LICENSES          %f) FEATURES          %O) CONTIGUOUS        %h) OVER_SUBSCRIBE  %w) WCKEY
+%o) COMMAND           %Z) WORK_DIR          %k) COMMENT
+
+EOFEX
+;;
+####################################################################################################################################
+29|a)
+cat <<\EOFEX
+EOFEX
+;;
+####################################################################################################################################
+30|aa)
+cat <<\EOFEX
+EOFEX
+;;
+####################################################################################################################################
+31|aaa)
+cat <<\EOFEX
+EOFEX
+;;
+####################################################################################################################################
+32|aaaa)
+cat <<\EOFEX
+EOFEX
+;;
+####################################################################################################################################
+998|wish)
+cat <<\EOF
+USE Slurm EXTENSION IN MAN_PAGE FILENAMES
+   man-pages named NAME.[0-9]Slurm.gz instead of NAME.[0-9].gz would allow man(1) options like -e and -S to select Slurm-specific
+   references. If not that, which might not be supported on all OS/platforms (?) include the word "Slurm" in all the document titles
+   so commands like "man -k slurm" would work. Doing both would be preferred.
+
+EXPAND MACROS IN SHOW
+   "scontrol show --details job" does not show filenames expanded,
+   so macros like %J appear in the filenames instead of actual
+   pathnames. This makes it harder to get the job output pathnames for use by scripts.
+
+HOME LEARNING
+
++ Virtual machine or KRONOS with SLURM and other HPC tools and virtual emulation of a cluster
++ Including how to install at home for testing
++ Cloud resources to try SLURM on
++ WWW Materials and Videos for Admin/User
+
+CANCEL BY REGEX OR GLOBBING OF JOB NAME
+
+EOF
+;;
+####################################################################################################################################
+all)
+#exec $0 $(for (( i=1 ; i<=999 ; i=i+1 )); do echo $i; done|xargs)
+exec $0 $(seq 1 100 ) 999
+;;
+####################################################################################################################################
+999|*)
+cat <<\EOF
+Slurm Examples and Topics. Available keywords are:
+
+Slurm Commands
+   sacct     - displays accounting data for all jobs and job steps in
+               the Slurm job accounting log or Slurm database
+   scancel   - Used to signal jobs or job steps.
+               ALSO discusses resume, suspend, requeue
+   sinfo     - view information about Slurm nodes and partitions.
+   squeue    - view information about jobs located in the Slurm scheduling
+               queue.
+   sstat     - Display various status information of a running job/step.
+   sbatch    - submitting batch jobs
+Topics
+   array     - submitting an array of jobs from a single submittal script.
+   array_schedmd - Schedmd documentation for job arrays
+   environment - environment variables
+   memory    - optimal memory usage
+   nodes     - crib sheet about node commands
+   format    - options for --format and --Format
+   output    - std files and job state. Information and status from the job
+   state     - information about the current state of the job
+   shebang   - tips on the shebang line
+   sharing   - sharing messages or data files with others
+   jobinfo   - display job
+   reservation - examples of reservations
+   profiling - profiling via accounting, cgroups, applications and plugins
+Example Slurm Scripts
+   single          - single-core batch job
+   explore         - single-core batch job
+   jobs_in_jobs    - NOT_YET: running jobs within allocation for a batch job
+   big_head        - NOT_YET: large-memory head node
+Administration
+   add_user  - information on adding accounts and users
+Miscellaneous
+   all        - show all the topic information
+   references - point to external references
+EOF
+break
+;;
+esac
+done| less -r
+####################################################################################################################################
+exit
+####################################################################################################################################
+FODDER:
+
+Slurm associates to each node a set of Features and a set of
+Generic resources. Features are immutable characteristics of the node
+(e.g. network connection type) while generic resources are consumable
+resources, meaning that as users reserve them, they become unavailable
+for the others (e.g. compute accelerators).
+
+Features are requested with --constraint="feature1&feature2" or
+--constraint="feature1|feature2". The former requests both, while
+the latter, as one would expect, requests at least one of feature1 or
+feature2. More complex expressions can be constructed. Type man sbatch
+for details.
+
+Generic resources are requested with --gres="resource:2" to request
+2 resources.
+
+Generic resources and features can be listed with the command scontrol
+show nodes.
+.
+./s-top
+./s-state
+./s-jobload
+./s-restart-slurm
+./s-drain-cluster
+./.s-example.swp
+./s-requeue
+./s-history
+./Slurm
+./s-run-on-all
+./s
+./s-example
+./CRASH
+./CRASH/bad.varlog
+./CRASH/etc
+./CRASH/etc/slurm-llnl
+./CRASH/etc/slurm-llnl/PrologSlurmctld.sh
+./CRASH/etc/slurm-llnl/plugstack.conf
+./CRASH/etc/slurm-llnl/slurm.conf.2024-02-01T21:14:31
+./CRASH/etc/slurm-llnl/SrunProlog.sh
+./CRASH/etc/slurm-llnl/slurm.conf.2024-02-01
+./CRASH/etc/slurm-llnl/reset.sh
+./CRASH/etc/slurm-llnl/slurm.conf.man
+./CRASH/etc/slurm-llnl/slurm.conf.2023-12-01T18:21:32
+./CRASH/etc/slurm-llnl/TaskProlog.sh
+./CRASH/etc/slurm-llnl/slurm.conf
+./CRASH/etc/slurm-llnl/cgroup.conf
+./CRASH/etc/slurm-llnl/slurm.conf.good
+./CRASH/etc/slurm-llnl/plugstack.conf.d
+./CRASH/etc/slurm-llnl/slurm.conf.good.2
+./CRASH/etc/slurm-llnl/Epilog
+./CRASH/etc/slurm-llnl/Epilog/Epilog.sh
+./CRASH/etc/slurm-llnl/Prolog
+./CRASH/etc/slurm-llnl/Prolog/Prolog.sh
+./CRASH/basic_csh.slurm
+./CRASH/.login
+./CRASH/.profile
+./CRASH/.bashrc
+./CRASH/better1.txt
+./CRASH/error.txt
+./CRASH/basic_bash.slurm
+./CRASH/.viminfo
+./CRASH/.vimrc
+./CRASH/edit.sh
+./CRASH/.bashrc_profile
+./CRASH/.cshrc
+./CRASH/run.sh
+./CRASH/getenv
+./CRASH/jsu.tar.gz
+./CRASH/.bash_logout
+./teardown
+./BUGZILLA
+./BUGZILLA/format.txt
+./BUGZILLA/incomplete_env.txt
+./s-expand
+./s-docs
+./x.sh
+./aliases
+./aliases/onnode
+./aliases/susers
+./aliases/hopen.
+./aliases/pending
+./aliases/queues
+./aliases/jobload
+./aliases/nodeload
+./aliases/hclose.
+./aliases/running
+./aliases/.aliases
+./.screenrc
+./jobs_in_job.bash
+./s-jobliststat
+./s-pause
+./s-login
+./INTERACTIVE
+./s-persistent-login
+./WIP
+./WIP/extra_constraints.txt
+./WIP/sinfo.sh
+./WIP/README.txt
+./WIP/s-load.
+./WIP/FODDER
+./WIP/FODDER/s-btop
+./WIP/FODDER/s-sample
+./WIP/FODDER/notes.txt
+./WIP/FODDER/notes.tx
+./WIP/FODDER/s-skel
+./WIP/s-brun
+./WIP/sinfo+
+./WIP/s-bjobs
+./WIP/SLURM_
+./setup
+./s-mem
+./s-cluster
+./s-peek
+./s-expand-to-list
+./s-slurm2sql
+./s-partition
+./s-joblists
+./s-nodelists
+./s-goto
+./.tmux.conf
+./.functions
+./s-select-jobid-args
+./s-qos
+./s-contract
+./s-onnode

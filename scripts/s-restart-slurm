@@ -1,0 +1,72 @@
+#!/bin/bash
+###############################################################################
+#@(#) (ADMIN) :W: restart Slurm
+###############################################################################
+# WIP (Work In Progress)
+echo $0
+###############################################################################
+# make sure daemons are started with limits sufficient for
+# anything they spawn
+ulimit \
+-c  0 \
+-d  unlimited \
+-e  unlimited \
+-f  unlimited \
+-i  unlimited \
+-l  unlimited \
+-m  unlimited \
+-n  unlimited \
+-p  unlimited \
+-q  unlimited \
+-r  unlimited \
+-s  unlimited \
+-t  unlimited \
+-u  unlimited \
+-v  unlimited \
+-x  unlimited
+ulimit -a
+###############################################################################
+declare -x $(scontrol show config|grep -i SlurmctldHost|tr -d ' ')
+MASTER=$SlurmctldHost
+HOSTNAME=$(hostname)
+###############################################################################
+# make sure slurm.conf same on all nodes if not running single image
+# WIP
+###############################################################################
+# stop, start, and status daemons
+set -x -v
+
+:  Reconfigure all Slurm daemons on all nodes. This should be done after
+: changing the Slurm configuration file.
+scontrol reconfig
+
+systemctl stop slurmd |cat
+[ "$MASTER" = "$HOSTNAME" ] && systemctl stop slurmctld|cat
+
+systemctl start slurmd |cat
+[ "$MASTER" = "$HOSTNAME" ] && systemctl start slurmctld|cat
+
+systemctl status slurmd |cat
+[ "$MASTER" = "$HOSTNAME" ] && systemctl status slurmctld|cat
+###############################################################################
+
+: Print the current Slurm configuration. This also reports if the primary
+: and secondary controllers (slurmctld daemons) are responding. To just
+: see the state of the controllers, use the scontrol subcommand ping.
+
+scontrol show config
+###############################################################################
+sinfo -R
+###############################################################################
+echo log files are in /var/log/*slurm*
+exit
+###############################################################################
+# Add options for
+
+# debug mode
+#slurmctld -D -vvvv
+#slurmctld -D -vvvv
+
+# clear all state information including current jobs
+#systemctl stop slurmd -c |cat
+#systemctl stop slurmctld -c |cat

@@ -1,0 +1,19 @@
+#!/bin/bash
+# @(#) (INFO JOB) :W: list memory resources used by a completed job
+for JOBID in $*
+do
+sacct -j $jobID --format=jobid,maxrss,elapsed
+done
+exit
+
+After completion, probe memory usage
+$ sacct -j jobID --format=jobid,elapsed,cputime,maxrss,maxrsstask,averss
+Which of the Slurm steps shows actual memory allocation in this code?
+I MaxRSS is the memory usage by the task that used the most memory
+I MaxRSSTask is the ID of that task
+I AveRSS provides average over all ranks in the step
+I CPUTime is combined CPU time across all ranks in the step
+I Elapsed is the wallclock time
+Unfortunately, Slurm does not store the memory usage distribution across tasks, just the maximum and the average
+For accurate measurement, use a profiler tool
+slides at http://bit.ly/introhpc

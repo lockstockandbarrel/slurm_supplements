@@ -1,0 +1,389 @@
+#!/bin/bash
+###############################################################################
+#@(#) (ADMIN) :HW: submit small confidence test to each node
+###############################################################################
+function VERSION(){
+cat <<\EOF
+PRODUCT:        Slurm tools
+PROGRAM:        s-run-on-all
+DESCRIPTION:    submit a small job as a confidence test to all nodenames
+VERSION:        1.0, 2023-12-29
+AUTHOR:         John S. Urban
+REPORTING BUGS: http://www.urbanjost.altervista.org/
+HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+LICENSE:        MIT
+EOF
+}
+###############################################################################
+function PARSE(){
+# Note that we use "$@" to let each command-line parameter expand to a separate word.
+# The quotes around "$@" are essential!
+# We need TEMP as the 'eval set --' would nuke the return value of getopt.
+TEMP=$(getopt -o 'hvuVdnw::p:R:r:c::' --long 'help,version,usage,verbose,dryrun,nodelist:,which:,partition:,reservation:,repeat:,c-long::' -n "$(basename $0)" -- "$@")
+
+if [ $? -ne 0 ]; then
+        echo 'Terminating...' >&2
+        exit 1
+fi
+
+# Note the quotes around "$TEMP": they are essential!
+eval set -- "$TEMP"
+unset TEMP
+declare -g -x -u WHICHONE=DEFAULT
+export VERBOSE=FALSE DRYRUN=FALSE SCRIPT_USER=${USER:-$LOGNAME}
+export SCRIPT_USER=''
+export ACCOUNT=''
+export CLUSTERS=''
+export LICENSES=''
+export NAME=''
+export STATES=''
+export NODELIST=''
+export PARTITION=''
+export QOS=''
+export RESERVATION=''
+export REPEAT=1
+export OPERATION='resume'
+export VERBOSE_KEYS='+v +x'
+export ATTRIBUTE=''
+while true; do
+   case "$1" in
+      '-h'|'--help')    shift;    HELP;    exit ;;
+      '-v'|'--version') shift;    VERSION; exit ;;
+      '-u'|'--usage')   shift;    USAGE;   exit ;;
+
+      '-V'|'--verbose')  shift;  VERBOSE=TRUE;         continue  ;;
+      '-d'|'--dryrun')   shift;  DRYRUN=TRUE;          continue  ;;
+
+      '-w'|'--which')        WHICHONE="$2";            shift 2;  continue  ;;
+      '-M'|'--clusters')     CLUSTERS="$2";            shift 2;  continue  ;;
+      '-w'|'--nodelist')     NODELIST="$2";            shift 2;  continue  ;;
+      '-p'|'--partition')    PARTITION="$2";           shift 2;  continue  ;;
+      '-q'|'--qos')          QOS="$2";                 shift 2;  continue  ;;
+      '-R'|'--reservation')  RESERVATION="$2";         shift 2;  continue  ;;
+      '-r'|'--repeat')       REPEAT="$2";              shift 2;  continue  ;;
+
+      '-c'|'--c-long')
+         # c has an optional argument. As we are in quoted mode,
+         # an empty parameter will be generated if its optional
+         # argument is not found.
+         case "$2" in
+         '')
+            echo 'Option c, no argument'
+         ;;
+         *)
+            echo "Option c, argument '$2'"
+         ;;
+         esac
+         shift 2
+         continue
+      ;;
+      '--')
+         shift
+         break
+      ;;
+      *)
+         echo 'Internal error!' >&2
+         exit 1
+      ;;
+   esac
+done
+
+# Remaining arguments:
+OTHER=''
+for arg; do
+        OTHER="$OTHER $arg"
+done
+}
+###############################################################################
+function HELP(){
+TTY=${TTY:-$(tty --silent||echo FALSE && echo TRUE)}
+HELPCAT <<\EOF
+NAME
+    s-run_on-all(1) - submit a small job to each node
+SYNOPSIS
+    s-run_on-all [--verbose][--dryrun][--which EXAMPLE_NAME] [OPTIONS]
+
+    s-run_on-all --help| --version | --usage
+DESCRIPTION
+   s-run_on-all submits a small confidence test to each node of a cluster.
+
+ ROLL YOUR OWN
+
+       # list all node names
+       sinfo -h -o %n
+
+OPTIONS
+   --repeat,r        repeat count
+   --which,w         which example name. Enter HELP to list them.
+
+   --clusters,M      cluster_name
+   --partition,p     part_list
+   --reservation,R   reservation_name
+   --nodelist,w      hostlist. Defaults to all nodenames
+
+   --dryrun,d    dryrun just showing squeue(1) output of selections
+   --verbose,V   verbose mode
+
+   --help        display this help and exit
+   --usage       display condensed description of options
+   --version     output version information and exit
+EXAMPLES
+ Common usage:
+
+     s-run_on-all
+
+SEE ALSO
+
+   + scontrol(1)
+   + https://slurm.schedmd.com/documentation.html
+EOF
+}
+###############################################################################
+function USAGE(){
+cat <<\EOF
+Job Selectors
+   JOBIDS             job IDS to resume
+   -r,--repeat        count of times to repeat the submittal
+   -M,--clusters      cluster_name
+   -p,--partition     part_list
+   -q,--qos           qos_list
+   -R,--reservation   reservation_name
+   -w,--nodelist      hostlist
+
+Modes
+   -d,--dryrun        just showing submitalls
+   -V,--verbose       verbose mode
+
+Informational
+   -h,--help          display this help and exit
+   -u,--usage         display condensed description of options
+   -v,--version       output version information and exit
+EOF
+}
+###############################################################################
+function WHICHJOB(){
+#-----------------------------------------------------------------------------#
+case "$WHICHONE" in
+#-----------------------------------------------------------------------------#
+1|ARRAY)
+cat <<\EOFEX
+#!/bin/bash
+#SBATCH --array 1-10:2
+#SBATCH -N 1-1 -n 1
+#SBATCH --time=70 --mem=1000
+
+(
+cat <<EOF
+ SLURM_JOB_ID           @| $SLURM_JOB_ID           @| The ID of the job allocation.
+ SLURM_JOB_START_TIME   @| $SLURM_JOB_START_TIME   @| The UNIX timestamp for a job's start time.
+ SLURM_SUBMIT_HOST      @| $SLURM_SUBMIT_HOST      @| The hostname of the computer from which sbatch was invoked.
+ SLURM_CLUSTER_NAME     @| $SLURM_CLUSTER_NAME     @| Name of the cluster on which the job is executing.
+ SLURM_JOB_NAME         @| $SLURM_JOB_NAME         @| Name of the job.
+                        @|                         @|
+ SLURM_ARRAY_JOB_ID     @| $SLURM_ARRAY_JOB_ID     @| Job array's master job ID number.
+ SLURM_ARRAY_TASK_COUNT @| $SLURM_ARRAY_TASK_COUNT @| Total number of tasks in a job array.
+ SLURM_ARRAY_TASK_ID    @| $SLURM_ARRAY_TASK_ID    @| Job array ID (index) number.
+ SLURM_ARRAY_TASK_MAX   @| $SLURM_ARRAY_TASK_MAX   @| Job array's maximum ID (index) number.
+ SLURM_ARRAY_TASK_MIN   @| $SLURM_ARRAY_TASK_MIN   @| Job array's minimum ID (index) number.
+ SLURM_ARRAY_TASK_STEP  @| $SLURM_ARRAY_TASK_STEP  @| Job array's index step size.
+                        @|                         @|
+ SLURM_TASK_PID         @| $SLURM_TASK_PID         @| The process ID of the task being started.
+ SLURM_SUBMIT_DIR       @| $SLURM_SUBMIT_DIR       @| The directory from which sbatch was invoked.
+EOF
+)|column -t -s@
+
+env|grep ^SLURM_
+sleep 60
+
+unset SLURM_EXPORT_ENV
+unset SLURM_GTIDS
+
+
+#        SLURM_CPUS_ON_NODE Number  of  CPUs  allocated  to  the  batch step.  NOTE: The se    lect/linear plugin allocates entire nodes to jobs, so the  value indicates  the  total  count  of  CPUs  on  the  node.   For the cons/tres plugin, this number indicates the number  of  CPUs  on this node allocated to the step.
+#        SLURM_JOB_ACCOUNT Account name associated of the job allocation.
+#        SLURM_JOB_CPUS_PER_NODE Count of CPUs available to the job on the nodes in  the  allocation
+#        SLURM_JOB_END_TIME The UNIX timestamp for a job's projected end time.
+#
+#        SLURM_JOB_NODELIST List of nodes allocated to the job.
+#        SLURM_JOB_NUM_NODES Total number of nodes in the job's resource allocation.
+#        SLURM_JOB_PARTITION Name of the partition in which the job is running.
+#        SLURM_JOB_QOS Quality Of Service (QOS) of the job allocation.
+#        SLURM_JOB_RESERVATION Advanced reservation containing the job allocation, if any.
+#        SLURM_LOCALID Node local task ID for the process within a job.
+#        SLURM_MEM_PER_CPU Same as --mem-per-cpu
+#        SLURM_MEM_PER_NODE Same as --mem
+#        SLURM_NODEID ID of the nodes allocated.
+#        SLURM_NTASKS Set to value of the --ntasks option, if specified. Or, if either of the --ntasks-per-node or --ntasks-per-gpu options are  specified, set to the number of tasks in the job.
+#        SLURM_OVERCOMMIT Set to 1 if --overcommit was specified.
+#        SLURM_PRIO_PROCESS The  scheduling priority (nice value) at the time of job submis    sion.  This value is  propagated  to the spawned processes.
+#        SLURM_PROFILE Same as --profile
+#        SLURM_RESTART_COUNT If the job has been restarted due to system failure or has  been explicitly  requeued,  this  will be sent to the number of times the job has been restarted.
+#        SLURM_SHARDS_ON_NODE Number of GPU Shards available to the step on this node.
+#        SLURM_TASKS_PER_NODE Number of tasks to be initiated on each node. Values  are  comma separated  and  in the same order as SLURM_JOB_NODELIST.  If two or more consecutive nodes are to have the same task count,  that count  is  followed by "(x#)" where "#" is the repetition count.  For example, "SLURM_TASKS_PER_NODE=2(x3),1" indicates  that  the first  three  nodes  will  each execute two tasks and the fourth node will execute one task.
+#        SLURM_TRES_PER_TASK Set to the value of --tres-per-task. If --cpus-per-task is specified, it is also set in SLURM_TRES_PER_TASK as if it were specified in --tres-per-task.
+#        SLURMD_NODENAME Name of the node running the job script.
+#
+sleep 3600
+EOFEX
+;;
+#-----------------------------------------------------------------------------#
+2|LOGIN)
+cat <<\EOFEX
+#!/bin/bash -l
+
+# A single-core job
+
+#SBATCH --propagate=NONE --export=NONE
+#SBATCH -N 1-1 -n 1 --threads-per-core=1
+#SBATCH --mem=1000
+#SBATCH --time=10:00
+if [ -x /proc/$$/limits ]
+then
+   cat /proc/$$/limits
+else
+   ulimit -a
+fi
+set -v -x
+pwd
+: 'dump environment. Note environment variables'
+env
+unset SLURM_EXPORT_ENV SLURM_GET_USER_ENV SBATCH_EXPORT SBATCH_GET_USER_ENV
+tty
+realpath /dev/stdout
+#
+# ensure any srun(1) command does not have exporting off
+# because this job requested exporting be off
+export SRUN_EXPORT_ENV=ALL
+#
+: 'echo job parameter information'
+scontrol show jobid=$SLURM_JOB_ID
+: 'echo job input script'
+scontrol write batch_script "$SLURM_JOB_ID" -
+# do something to generate a report of success or fail
+sleep 600
+EOFEX
+;;
+#-----------------------------------------------------------------------------#
+999|DEFAULT)
+cat <<\EOFEX
+#!/bin/bash
+
+# A single-core job
+
+#SBATCH --propagate=NONE --export=NONE
+#SBATCH -N 1-1 -n 1 --threads-per-core=1
+#SBATCH --mem=1000
+#SBATCH --time=10:00
+set -v -x
+: file permission mask
+umask
+: 'display resource limits; equivalent to bash(1) "ulimit -a" or csh(1) "limit"'
+cat /proc/$$/limits
+: current directory
+pwd
+: 'dump environment. Note environment variables'
+env
+#
+# ensure any srun(1) command does not have exporting off
+# because this job requested exporting be off
+export SRUN_EXPORT_ENV=ALL
+#
+: 'echo job parameter information'
+scontrol show jobid=$SLURM_JOB_ID
+: 'echo job input script'
+scontrol
+# do something to generate a report of success or fail
+sleep 3600
+EOFEX
+;;
+#-----------------------------------------------------------------------------#
+*)
+cat 1>&2 <<EOF
+<ERROR> Unknown example name "$WHICHONE". Use:
+   + DEFAULT   example of 1-core job
+   + LOGIN     example of 1-core job with "bash -l"
+   + ARRAY     using a job array
+EOF
+;;
+#-----------------------------------------------------------------------------#
+esac
+#-----------------------------------------------------------------------------#
+}
+###############################################################################
+#
+# main
+#
+source $(dirname $0)/.functions
+PARSE "$@"
+
+if [ "$VERBOSE" = TRUE ]
+then
+VERBOSE_KEYS='-v -x'
+cat 1>&2 <<EOF
+--------------------------------------------------------------------------------
+<INFO>$0:
+<INFO>VERBOSE:     $VERBOSE
+<INFO>CLUSTERS:    $CLUSTERS
+<INFO>NODELIST:    $NODELIST
+<INFO>PARTITION:   $PARTITION
+<INFO>QOS:         $QOS
+<INFO>RESERVATION: $RESERVATION
+<INFO>DRYRUN:      $DRYRUN
+<INFO>REPEAT:      $REPEAT
+<INFO>WHICH:       $WHICHONE
+--------------------------------------------------------------------------------
+EOF
+else
+VERBOSE_KEYS='-v -x'
+fi
+
+OPTIONS=''
+[ "$CLUSTERS"    != '' ] && OPTIONS="$OPTIONS --clusters $CLUSTERS"
+[ "$NODELIST"    != '' ] && OPTIONS="$OPTIONS --nodelist $NODELIST"
+[ "$PARTITION"   != '' ] && OPTIONS="$OPTIONS --partition $PARTITION"
+[ "$QOS"         != '' ] && OPTIONS="$OPTIONS --qos $QOS"
+[ "$RESERVATION" != '' ] && OPTIONS="$OPTIONS --reservation $RESERVATION"
+
+NODELIST=${NODELIST:-$(NODELIST)}
+
+for NAME in $(EXPAND $NODELIST|xargs)
+do
+   echo $NAME
+
+   case "$PARTITION" in
+   '')
+      declare -x $(scontrol show node $NAME|grep -i Partitions=|tr -d ' ')
+      PARTITION="$Partitions"
+   ;;
+   esac
+
+   MESSAGE "sbatch --partition $PARTITION --overcommit --job-name 'Run_on_$NAME' -w $NAME"
+
+   for (( COUNT=0 ; REPEAT-COUNT > 0; COUNT=COUNT+1 ))
+   do
+      if [ "$DRYRUN" = TRUE ]
+      then  # just show job
+         WHICHJOB
+         echo
+         COUNT=$((REPEAT-1))
+      else
+         WHICHJOB|sbatch --partition $PARTITION --overcommit --job-name "Run_on_$NAME" -w $NAME
+      fi
+   done
+
+done
+###############################################################################
+exit
+###############################################################################
+
+       for (( expr1 ; expr2 ; expr3 )) ; do list ; done
+              First, the arithmetic expression expr1 is evaluated according to
+              the rules described  below  under  ARITHMETIC  EVALUATION.   The
+              arithmetic  expression  expr2 is then evaluated repeatedly until
+              it evaluates to zero.  Each time expr2 evaluates to  a  non-zero
+              value,  list  is executed and the arithmetic expression expr3 is
+              evaluated.  If any expression is omitted, it behaves  as  if  it
+              evaluates to 1.  The return value is the exit status of the last
+              command in list that is executed, or false if any of the expres
+              sions is invalid.
+

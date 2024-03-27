@@ -1,0 +1,514 @@
+#!/bin/bash
+###############################################################################
+#@(#) (STATE-PARTITIONS) :*: display or turn Slurm partitions/queues on and off
+###############################################################################
+function PARSE(){
+# Note that we use "$@" to let each command-line parameter expand to a separate word.
+# The quotes around "$@" are essential!
+# We need TEMP as the 'eval set --' would nuke the return value of getopt.
+#set -o noglob
+TEMP=$(getopt -o 'hvVstduOCc::' --long 'help,version,verbose,show,table,dump,usage,open,close,state:,c-long::' -n "$(basename $0)" -- "$@")
+#unset noglob
+
+if [ $? -ne 0 ]; then
+   echo 'Terminating...' >&2
+   exit 1
+fi
+
+# Note the quotes around "$TEMP": they are essential!
+eval set -- "$TEMP"
+unset TEMP
+export SHOW=FALSE TRANSPOSE=FALSE STATE='' VERBOSE='' DUMP=''
+while true; do
+   case "$1" in
+      '-h'|'--help')        shift; HELP;           exit     ;;
+      '-v'|'--version')     shift; VERSION;        exit     ;;
+      '-u'|'--usage')       shift; USAGE;          exit     ;;
+
+      '-O'|'--open')        shift; STATE=UP;                     continue ;;
+      '-C'|'--close')       shift; STATE=DOWN;                   continue ;;
+      '-s'|'--show')        shift; SHOW=TRUE;                    continue ;;
+      '-d'|'--dump')        shift; SHOW=TRUE DUMP='--oneliner';  continue ;;
+      '-t'|'--table')       shift; TRANSPOSE=TRUE;               continue ;;
+      '-V'|'--verbose')     shift; VERBOSE=TRUE;                 continue ;;
+
+      '-s'|'--state')       STATE="$2"; shift 2;                 continue ;;
+      '-c'|'--c-long')
+         # c has an optional argument. As we are in quoted mode,
+         # an empty parameter will be generated if its optional
+         # argument is not found.
+         case "$2" in
+            '')
+               echo 'Option c, no argument'
+            ;;
+            *)
+               echo "Option c, argument '$2'"
+            ;;
+         esac
+         shift 2
+         continue
+      ;;
+      '--')
+         shift
+         break
+      ;;
+      *)
+         echo 'Internal error!' >&2
+         exit 1
+      ;;
+   esac
+done
+
+# Remaining arguments:
+OTHER=''
+#set -o noglob
+for arg; do
+   OTHER="$OTHER $arg"
+done
+#unset noglob
+}
+################################################################################
+function HELP(){
+TTY=${TTY:-$(tty --silent||echo FALSE && echo TRUE)}
+HELPCAT <<\EOF
+NAME
+    s-partitions(1)  -  common partition operations
+SYNOPSIS
+    s-partitions [[--open|--close|--state STATE]|--verbose] |--show|--dump] ...
+       partitions
+
+    s-partitions --help|--version
+DESCRIPTION
+   Display or control the state of partitions (i.e. open or close the
+   queues).  The default is to simply display the partition states.
+
+   Administrators can stop Slurm from scheduling jobs on a per partition
+   basis by setting that partition's state to DOWN, or set its state to UP
+   to resume scheduling.
+
+   s-partitions(1) provides a simple wrapper around scontrol(1) primarily
+   to allow for quickly closing and opening all the queues/partitions
+   and/or to alter queues allowing globbing of the partition names, as
+   currently scontrol(1) only allows one fixed partition name at a time.
+   Slurm requires a command per partition of the form:
+
+          scontrol update PartitionName=foo State=UP|DOWN
+
+   although documentation indicates "partitions" defaults to all the
+   non-hidden partitions in the cluster in some cases -- it does not
+   for updates.
+
+   Possible values for --state are "UP", "DOWN", "DRAIN" and "INACTIVE".
+   --open is an abbreviation for "--state up"; and --close is an abbreviation
+   for "--state down".
+
+   This makes closing or opening all the queues as simple as
+
+          s par --close  # close all the queues
+          s par --open   # open all the queues
+
+   Note that for all "states" jobs already running on the partition
+   continue to run (The jobs must be explicitly canceled to force their
+   termination -- see scancel(1), "scontrol update node" and s-state(1)).
+
+       | STATE    |NEW JOBS| START PENDING|
+       | UP       |   Y    |      Y       | Same as --open
+       | DOWN     |   Y    |      N       | Same as --close
+       | DRAIN    |   N    |      Y       |
+       | INACTIVE |   N    |      N       |
+
+   UP        (NEW JOBS ALLOWED IN, PENDING CAN START) Designates that
+             new jobs can be queued and run on the partition.
+
+   DOWN      (NEW JOBS ALLOWED IN, PENDING DO NOT START) Designates
+             that new jobs can be queued on the partition but not started.
+
+   DRAIN     (NO NEW JOBS IN, PENDING CAN START) Designates that no
+             new jobs can be queued on the partition (job submission
+             requests will be denied with an error message), but jobs
+             already queued on the partition may be allocated nodes
+             and run.
+
+   INACTIVE  (NO NEW JOBS IN, PENDING DO NOT START) Designates that no
+             new jobs can be queued on the partition, and jobs already
+             queued may not be started (allocated nodes and run).
+OPTIONS
+    With no options the current state of the partitions is displayed.
+
+    partitions  A comma-separated list of partitions. The default is all
+                partitions.
+
+    --open      Let new jobs be queued and also let queued jobs start.
+                That is, set the partition state to "UP".
+    --close     Stop starting new jobs but let them queue up. That is,
+                set the partition state to "DOWN".
+    --state     Explicitly set State. Possible values are "UP", "DOWN",
+                "DRAIN" and "INACTIVE".
+
+    --show      show all configuration values for the partitions and exit
+    --table     show all configuration values for the partitions
+                transposed and exit
+    --dump      show all configuration values one line per partition
+                and exit
+
+    --verbose   display Slurm commands executed and additional
+                supplemental information
+
+    --help      display this help and exit
+    --usage     display basic list of options and descriptions
+    --version   output version information and exit
+
+EXAMPLES
+   Sample commands
+
+       # show current state of partitions (ie. queues)
+       s-partitions
+
+       # show just partitions express,production
+       s-partitions express,production
+
+       # close specified partitions
+       s-partitions --close  small,whole,single
+
+       s-partitions -C     # close all partitions
+       s-partitions --open # open all partitions
+       s par -O            # open all partitions, abbreviated
+
+SEE ALSO
+   scontrol(1), sinfo(1), squeues(1)
+EOF
+}
+###############################################################################
+function VERSION(){
+cat <<\EOF
+PRODUCT:        Slurm tools
+PROGRAM:        s-partition
+DESCRIPTION:    turn Slurm partitions/queues on and off
+VERSION:        1.0, 2023-12-29
+AUTHOR:         John S. Urban
+REPORTING BUGS: http://www.urbanjost.altervista.org/
+HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+LICENSE:        MIT
+EOF
+}
+###############################################################################
+function USAGE(){
+cat <<\EOF
+      partitions        partition(ie. queue) names. Default is all.
+      -O|--open         change listed partitions to DOWN state
+      -C|--close        change listed partitions to UP state
+      -s|--state STATE  change listed partitions to specified state
+
+
+      -d|--dump         dump one queue per line unformatted and exit
+      -s|--show         dump one queue per line neatly and exit
+      -t|--table        dump queue information transposed into  a columnar table
+      -V|--verbose      show Slurm commands executed and additional information
+
+      -h|--help         display help text
+      -u|--usage        display this list of options
+      -v|--version      display script version
+EOF
+}
+###############################################################################
+function LONG(){
+OPTIONS="$*"
+declare -gux $(scontrol show config|grep -i '^PriorityType'|sed -e 's/ //g')
+case "$PriorityType" in
+PRIORITY/BASIC)
+   # delete %I|%p
+   sinfo --format '%P|%a|%l|%L|%s|%r|%h|%g|%w|%X|%Y|%Z|%F|%B|%D|%N' $OPTIONS |
+   sed -e 's@PARTITION|.*|NODELIST@Partition|Avail|Time|Default|Job|Root|Over-|Groups|Wgt.|Soc.|Cor.|Thr.|Nodes|Max Node/|Nodes|Nodelist|\n | |Limit|Time|Size| |Sub.| | | | | |A/I/O/T|Cpus| | @'|
+   column -t -s '|'
+;;
+PRIORITY/MULTIFACTOR)
+   sinfo --format '%P|%a|%l|%L|%s|%r|%h|%g|%w|%X|%Y|%Z|%F|%I|%p|%B|%D|%N' $OPTIONS |
+   sed -e 's@PARTITION  .* NODELIST@Partition  Avail  TIMELIMIT  DEFTIME  JOB_SIZE  ROOT  OVERSUB.  GROUPS  WEIGHT  SOC.  COR.  THR.  NODES(A/I/O/T)  MAX_CPUS/NODE  NODES  NODELIST@'|
+   column -t -s '|'
+;;
+esac
+###############################################################################
+# %P    Partition  name followed by "*" for the default partition, also see %R.
+# # %R    Partition name, also see %P.
+# %a    State/availability of a partition.
+# %l    Maximum  time  for  any job in the format "days-hours:minutes:seconds"
+# %L    Default time for any job in  the  format  "days-hours:minutes:seconds"
+# %B    The  max  number of CPUs per node available to jobs in the partition.
+# %s    Maximum job size in nodes.
+# %r    Only user root may initiate jobs, "yes" or "no".
+# %h    Print the OverSubscribe setting for the partition.
+# %g    Groups which may use the nodes.
+# #%T    State of nodes, extended form.
+# %F    Number  of  nodes  by   state   in   the   format   "allocated/idle/other/total".
+#       Note the use of this format option with a node state format option ("%t" or  "%T")  will
+#       result  in  the different node states being be reported on separate lines.
+# # %t    State of nodes, compact form.
+# %w    Scheduling weight of the nodes.
+# %X    Number of sockets per node.
+# %Y    Number of cores per socket.
+# %Z    Number of threads per core.
+# # %z    Extended processor information: number of sockets,  cores, threads (S:C:T) per node.
+# %i    If a node is in an advanced reservation print the name  of that reservation.
+# %I    Partition job priority weighting factor.
+# %p    Partition scheduling tier priority.
+# %D    Number of nodes.
+# %N    List of node names.
+# # %all  Print  all fields available for this data type with a vertical bar separating each field.
+# # %b    Features currently active on the nodes, also see %f.
+# # %c    Number of CPUs per node.
+# # %d    Size of temporary disk space per node in megabytes.
+# # %e    The total memory, in MB, currently free on the node as reported by the OS.
+# # %G    Generic resources (gres) associated with the nodes.
+# # %m    Size of memory per node in megabytes.
+# # %M    PreemptionMode.
+# # %S    Allowed allocating nodes.
+###############################################################################
+}
+###############################################################################
+function SHOW(){
+   #  "%#P %.5a %.10l %.16F  %N"
+   [ "$OTHER" = '' ] && (
+   #$EXE sinfo --all --long
+   $EXE LONG
+   )||(
+   #$EXE sinfo --all --long --partition=$PARTITIONS
+   $EXE LONG --partition=$PARTITIONS
+   )|
+    sed -e 's@NODES(A/I/O/T)@Alloc Idle Other Total@'|tr '/' ' '|column -t
+}
+###############################################################################
+function TRANSPOSE(){
+(
+   $EXE scontrol --oneliner show partitions |head -n 1|column -t|sed -e 's/$/  /' -e 's/=[^ ]*  */|/g' -e 's/^/|/'
+   IFS=','
+   for NAME in ${PARTITIONS}
+   do
+      scontrol --oneliner show partitions=$NAME |
+       column -t|
+       sed -e 's/^/  /' -e 's/  [a-zA-Z]*=/|/g' -e 's/$/|/'|
+       tr 'A-Z' 'a-z'
+   done
+   unset IFS
+)| datamash -t '|' transpose |
+   grep -v '^Nodes\>' |
+   sed \
+   -e 's@^PartitionName@        001   PartitionName@' \
+   -e 's@^State@                002   State@' \
+   -e 's@^Default@              003   Default@' \
+   -e 's@^DefaultTime@          004   DefaultTime@' \
+   -e 's@^MaxTime@              005   MaxTime@' \
+   -e 's@^GraceTime@            006   GraceTime@' \
+   -e 's@^OverTimeLimit@        007   OverTimeLimit@' \
+   -e 's@^QoS@                  008   QoS@' \
+   -e 's@^LLN@                  009   LLN@' \
+   -e 's@^RootOnly@             010   RootOnly@' \
+   -e 's@^ReqResv@              011   ReqResv@' \
+   -e 's@^OverSubscribe@        012   OverSubscribe@' \
+   -e 's@^DisableRootJobs@      013   DisableRootJobs@' \
+   -e 's@^ExclusiveUser@        014   ExclusiveUser@' \
+   -e 's@^Hidden@               015   Hidden@' \
+   -e 's@^PreemptMode@          016   PreemptMode@' \
+   -e 's@^DefMemPerNode@        100   DefMemPerNode@' \
+   -e 's@^MaxMemPerNode@        101   MaxMemPerNode@' \
+   -e 's@^Nodes@                1101  Nodes@' \
+   -e 's@^MaxNodes@             1102  MaxNodes@' \
+   -e 's@^MinNodes@             1103  MinNodes@' \
+   -e 's@^MaxCPUsPerNode@       1104  MaxCPUsPerNode@' \
+   -e 's@^TotalCPUs@            1105  TotalCPUs@' \
+   -e 's@^TotalNodes@           1106  TotalNodes@' \
+   -e 's@^AllowGroups@          2001  AllowGroups@' \
+   -e 's@^AllowAccounts@        2002  AllowAccounts@' \
+   -e 's@^AllowQos@             2003  AllowQos@' \
+   -e 's@^AllocNodes@           2004  AllocNodes@' \
+   -e 's@^SelectTypeParameters@  4300  SelectTypeParameters@' \
+   -e 's@^JobDefaults@           4400  JobDefaults@' \
+   -e 's@^PriorityJobFactor@     5000  PriorityJobFactor@' \
+   -e 's@^PriorityTier@          5100  PriorityTier@' \
+   -e 's@  *@ @g' -e 's@^  *@@' |
+   sort -k 1n|
+   cut -f 2- -d ' '|
+   column -t -s '|'
+
+   sinfo --format='%P| %N' |
+   column -t -s '|'
+}
+###############################################################################
+function GLOB(){
+# think about adding globbing or use bash regular expressions
+
+for PATTERN in $PARTITIONS
+do
+   for NAME in $ALL
+   do
+      [[ "$NAME" == $PATTERN ]] && echo "$NAME" # glob
+      #[[ "$NAME" =~ $PATTERN ]] && echo "$NAME" # RE
+   done|sort|uniq|xargs
+done
+}
+###############################################################################
+# main
+source $(dirname $0)/.functions
+ALL=$(sinfo --all --noheader --Format=PartitionName|xargs) # get all partitions
+PARSE ${@}                                                 # parse command line
+export PARTITIONS="$OTHER"
+
+# allow globbing
+case "$OTHER" in
+'') PARTITIONS="${OTHER:-$ALL}" ;; # if no partitions specified set to all
+*\**|*\?*|*\[*) PARTITIONS=$(GLOB) ;;
+esac
+
+PARTITIONS=$(TRIM "$PARTITIONS"|tr --squeeze-repeats  ' ' ',' ) # comma-separate partition names
+export EXE
+[ "$VERBOSE" == TRUE ] && EXE=EXE || EXE=
+[ "$VERBOSE" == TRUE ] && SUDO=SUDO || SUDO=sudo
+###############################################################################
+if [ "$VERBOSE" = TRUE ]
+then
+cat <<EOF
+all partitions:      $ALL
+selected partitions: $PARTITIONS
+EOF
+fi
+###############################################################################
+#
+if [ "$TRANSPOSE" = TRUE ]
+then
+   TRANSPOSE|PAGER
+elif [ "$SHOW" = TRUE ]
+then
+   if [ "$OTHER" = '' ]
+   then
+      $EXE scontrol $DUMP show partition
+   else
+      IFS=','
+      for NAME in ${PARTITIONS}
+      do
+         $EXE scontrol $DUMP show partition=$NAME
+      done
+      IFS=
+   fi
+else
+   case "${STATE^^}" in
+   '')
+      SHOW|PAGER
+   ;;
+   UP|DOWN|INACTIVE|DRAIN)
+      IFS=','
+      for NAME in ${PARTITIONS}
+      do
+         $SUDO scontrol update PartitionName=$NAME State="$STATE"
+      done
+      IFS=
+      SHOW|PAGER
+   ;;
+   *)
+   cat 1>&2 <<EOF
+   ERROR: Unknown state $STATE specified. Possible State values are "UP",
+   "DOWN", "DRAIN" and "INACTIVE". Enter
+
+       $0 --help
+
+   for more information.
+EOF
+   exit 1
+   ;;
+   esac
+fi
+###############################################################################
+exit
+###############################################################################
+scontrol create partition:   Admin
+scontrol delete partition:   Admin
+
+scontrol update partition:   Admin
+
+scontrol show partition:     Admin, Operator
+## List definition of all current partitions:
+
+       scontrol --all show partitions
+
+## stop/start scheduling jobs
+
+## creating
+In the config file enter lines like /etc/slurm-llnl/slurm.conf
+
+      PartitionName=debug  Default=YES MinNodes=0 Nodes=mercury State=UP
+
+      PartitionName=debug  Nodes=ALL Default=YES MaxTime=INFINITE State=UP OverSubscribe=FORCE:1
+      PartitionName=single Nodes=ALL Default=YES MaxTime=INFINITE State=UP OverSubscribe=FORCE:1
+###############################################################################
+#-----------------------------------------------------------------------------#
+# Example --show:
+#-----------------------------------------------------------------------------#
+PartitionName=debug
+   AllowGroups=ALL AllowAccounts=ALL AllowQos=ALL
+   AllocNodes=ALL Default=NO QoS=N/A
+   DefaultTime=NONE DisableRootJobs=NO ExclusiveUser=NO GraceTime=0 Hidden=NO
+   MaxNodes=UNLIMITED MaxTime=UNLIMITED MinNodes=0 LLN=NO MaxCPUsPerNode=UNLIMITED
+   Nodes=dummy[1-1200],mercury
+   PriorityJobFactor=1 PriorityTier=1 RootOnly=NO ReqResv=NO OverSubscribe=FORCE:1
+   OverTimeLimit=NONE PreemptMode=OFF
+   State=UP TotalCPUs=1204 TotalNodes=1201 SelectTypeParameters=NONE
+   JobDefaults=(null)
+   DefMemPerNode=UNLIMITED MaxMemPerNode=UNLIMITED
+################################################################################
+   DisableRootJobs=YES
+   Default=NO
+   DefaultTime=NONE
+   GraceTime=0
+   Hidden=NO
+   MaxCPUsPerNode=UNLIMITED  # so get message if ask for more? Leave one for system?
+   JobDefaults=(null)
+###############################################################################
+function TRANSPOSE_INFO(){
+# Fodder about transposing a text file
+cat <<\INFO_EOF
+simple script transposing CSV-like table
+
+Given:
+head1;head2;head3
+field11;field12;field13
+field21;field22;field23
+
+Produce:
+head1;field11;field21
+head2;field12;field22
+head3;field13;field23
+
+#-----------------------------------------------------------------------------#
+can be done with GNU datamash:
+$ datamash -t ';' transpose <file
+#-----------------------------------------------------------------------------#
+#!/bin/bash
+declare -a array=( )              # we build a 1-D-array
+IFS=';' read -a line < "$1"       # read the headline
+COLS=${#line[@]}                  # save number of columns
+index=0
+while IFS=';' read -a line ; do
+    for (( COUNTER=0; COUNTER<${#line[@]}; COUNTER++ )); do
+        array[$index]=${line[$COUNTER]}
+        ((index++))
+    done
+done < "$1"
+for (( ROW = 0; ROW < COLS; ROW++ )); do
+  printf "%s" ${array[$ROW]}
+  for (( COUNTER = ROW+COLS; COUNTER < ${#array[@]}; COUNTER += COLS )); do
+    printf ";%s" ${array[$COUNTER]}
+  done
+  printf "\n"
+done
+exit
+#-----------------------------------------------------------------------------#
+# awk is much faster than bash for these types of operations
+awk -F';' '{OFS=";"}{ for (i=1; i<=NF; i++) a[i]= (i in a?a[i] OFS :"") $i; }
+    END{ for (i=1; i<=NF; i++) print a[i] }' input.txt
+#-----------------------------------------------------------------------------#
+# need read file as many times as have columns. It's useful only for small files.
+flds=3; for((i=1;i<=flds;i++));do
+  printf '%s' "$(cut -d';' -f$i file)" |tr '\n' ';';echo
+done
+#-----------------------------------------------------------------------------#
+INFO_EOF
+}
+###############################################################################

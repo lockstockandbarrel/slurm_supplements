@@ -1,0 +1,191 @@
+#!/bin/bash
+###############################################################################
+#@(#) (FUNCTIONS) :-: parse common parameters for selecting jobIDs and output the numbers
+###############################################################################
+function PARSE(){
+# Note that we use "$@" to let each command-line parameter expand to a separate word.
+# The quotes around "$@" are essential!
+# We need TEMP as the 'eval set --' would nuke the return value of getopt.
+TEMP=$(getopt -o 'U:A:L:n:w:p:q:R:mt:a:c::' --long 'user:,account:,licenses:,name:,nodelist:,partition:,qos:,reservation:,me,states:,attribute:,c-long::' -n "$(basename $0)" -- "$@")
+
+if [ $? -ne 0 ]; then
+        echo 'Terminating...' >&2
+        exit 1
+fi
+
+# Note the quotes around "$TEMP": they are essential!
+eval set -- "$TEMP"
+unset TEMP
+export SCRIPT_USER=${USER:-$LOGNAME}
+export SCRIPT_USER=''
+export ACCOUNT=''
+export LICENSES=''
+export NAME=''
+export STATES=''
+export NODELIST=''
+export PARTITION=''
+export QOS=''
+export RESERVATION=''
+export ATTRIBUTE=''
+while true; do
+   case "$1" in
+
+      '-m'|'--me')       shift;  SCRIPT_USER="${USER:-$LOGNAME}";  continue  ;;
+
+      '-U'|'--user')         SCRIPT_USER="$2";                     shift  2;  continue  ;;
+      '-A'|'--account')      ACCOUNT="$2";                         shift  2;  continue  ;;
+      '-L'|'--licenses')     LICENSES="$2";                        shift  2;  continue  ;;
+      '-n'|'--name')         NAME="$2";                            shift  2;  continue  ;;
+      '-t'|'--states')       STATES="$2";                          shift  2;  continue  ;;
+      '-w'|'--nodelist')     NODELIST="$2";                        shift  2;  continue  ;;
+      '-p'|'--partition')    PARTITION="$2";                       shift  2;  continue  ;;
+      '-q'|'--qos')          QOS="$2";                             shift  2;  continue  ;;
+      '-R'|'--reservation')  RESERVATION="$2";                     shift  2;  continue  ;;
+      '-a'|'--attribute')    ATTRIBUTE="$2" OPERATION=attribute;   shift  2;  continue  ;;
+
+      '-c'|'--c-long')
+         # c has an optional argument. As we are in quoted mode,
+         # an empty parameter will be generated if its optional
+         # argument is not found.
+         case "$2" in
+         '')
+            echo 'Option c, no argument'
+         ;;
+         *)
+            echo "Option c, argument '$2'"
+         ;;
+         esac
+         shift 2
+         continue
+      ;;
+      '--')
+         shift
+         break
+      ;;
+      *)
+         echo 'Internal error!' >&2
+         exit 1
+      ;;
+   esac
+done
+
+# Remaining arguments:
+OTHER=''
+for arg; do
+        OTHER="$OTHER $arg"
+done
+}
+###############################################################################
+function HELP(){
+cat <<\EOF
+OPTIONS
+   JOBIDS            job IDS
+   --user,U          userlist of job owners
+   --account,A       account_list
+   --licenses,L      license_list
+   --states,t        job states:
+
+                      PENDING, RUNNING, SUSPENDED, COMPLETED, CANCELLED,
+                      FAILED, TIMEOUT, NODE_FAIL, PREEMPTED, BOOT_FAIL,
+                      DEADLINE, OUT_OF_MEMORY, COMPLETING, CONFIGURING,
+                      RESIZING, REVOKED, SPECIAL_EXIT
+
+   --me,m            Equivalent to --user=<my username>.
+   --name,n          name_list of job names
+   --partition,p     part_list
+   --qos,q           qos_list
+   --reservation,R   reservation_name
+   --nodelist,w      hostlist
+
+EXAMPLES
+ Common usage:
+
+      # resume jobID 100
+      s-state  100
+
+      # suspend all running jobs of specified user, if permitted.
+      s-state --state running --operation suspend --u $USER
+
+      # resume all jobs of specified user, if permitted.
+      s-state --state suspended -o resume -U $USER
+
+      # alter priority of all jobs owned by a user
+      s-state --attribute 'priority=1000' --user $USER
+EOF
+}
+###############################################################################
+function USAGE(){
+cat <<\EOF
+Job Selectors
+   JOBIDS             job IDS to resume
+   -A,--account       account_list
+   -L,--licenses      license_list
+   -t,--states        job states
+   -m,--me            Equivalent to --user=<my username>.
+   -n,--name          name_list
+   -p,--partition     part_list
+   -q,--qos           qos_list
+   -R,--reservation   reservation_name
+   -U,--user          username of jobs to resume
+   -w,--nodelist      hostlist
+
+Actions
+   -o,--operation     scontrol(1) operation: resume, suspend, hold, release, ...
+   -a,--attribute     scontrol(1) update job: priority=, partition=, ...
+   -d,--dryrun        dryrun just showing squeue(1) output of selectors
+
+Modes
+   -V,--verbose       verbose mode
+
+Informational
+   -h,--help          display this help and exit
+   -u,--usage         display condensed description of options
+   -v,--version       output version information and exit
+EOF
+}
+###############################################################################
+#
+# main
+#
+source $(dirname $0)/.functions
+PARSE "$@"
+
+if [ "$VERBOSE" = TRUE ]
+then
+VERBOSE_KEYS='-v -x'
+cat 1>&2 <<EOF
+--------------------------------------------------------------------------------
+<INFO>$0:
+<INFO>USER:        $SCRIPT_USER
+<INFO>JOBS:        $OTHER
+<INFO>ACCOUNT:     $ACCOUNT
+<INFO>LICENSES:    $LICENSES
+<INFO>STATES:      $STATES
+<INFO>NAME:        $NAME
+<INFO>NODELIST:    $NODELIST
+<INFO>PARTITION:   $PARTITION
+<INFO>QOS:         $QOS
+<INFO>RESERVATION: $RESERVATION
+--------------------------------------------------------------------------------
+EOF
+fi
+
+OPTIONS=''
+[ "$SCRIPT_USER" != '' ] && OPTIONS="$OPTIONS --user $SCRIPT_USER"
+[ "$ACCOUNT"     != '' ] && OPTIONS="$OPTIONS --account $ACCOUNT"
+[ "$LICENSES"    != '' ] && OPTIONS="$OPTIONS --licenses $LICENSES"
+[ "$STATES"      != '' ] && OPTIONS="$OPTIONS --states $STATES"
+[ "$NAME"        != '' ] && OPTIONS="$OPTIONS --name $NAME"
+[ "$NODELIST"    != '' ] && OPTIONS="$OPTIONS --nodelist $NODELIST"
+[ "$PARTITION"   != '' ] && OPTIONS="$OPTIONS --partition $PARTITION"
+[ "$QOS"         != '' ] && OPTIONS="$OPTIONS --qos $QOS"
+[ "$RESERVATION" != '' ] && OPTIONS="$OPTIONS --reservation $RESERVATION"
+cat <<EOF
+squeue $OPTIONS --noheader --format '%i' --job $OTHER
+EOF
+squeue $OPTIONS --noheader --format '%i' --job $OTHER
+###############################################################################
+exit
+###############################################################################
+
+

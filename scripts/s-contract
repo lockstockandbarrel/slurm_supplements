@@ -1,0 +1,13 @@
+#!/bin/bash
+################################################################################
+#@(#) (FUNCTIONS) :-: compact a list of names with number suffixes
+################################################################################
+source $(dirname $0)/.functions
+if [ "$*" = '' ]
+then
+  printf 'Enter list to contract:'
+  read LINE
+  CONTRACT "$LINE"
+else
+  CONTRACT "$*"
+fi

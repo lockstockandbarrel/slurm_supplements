@@ -1,0 +1,43 @@
+#!/bin/bash
+###############################################################################
+#@(#) (INTER) :HW: start interactive shell in a running batch job
+###############################################################################
+function HELP(){
+cat <<\EOF
+Using Slurm you may initiate  a  JOB STEP under an already allocated job
+with job id ID.  Using this option will cause srun to behave exactly  as
+if the SLURM_JOB_ID  environment variable was set. This option applies
+to step allocations.
+
+If this case, a bash shell is run with an associated tty, basically
+beginning an interactive shell in the environment created by the specified
+batch job.
+EOF
+}
+###############################################################################
+function VERSION(){
+cat <<\EOF
+PRODUCT:        Slurm tools
+PROGRAM:        s-goto
+DESCRIPTION:    start interactive shell in a running batch job
+VERSION:        1.0, 2023-12-24
+AUTHOR:         John S. Urban
+REPORTING BUGS: http://www.urbanjost.altervista.org/
+HOME PAGE:      http://www.urbanjost.altervista.org/index.html
+LICENSE:        MIT
+EOF
+}
+###############################################################################
+for JOBID in $*
+do
+   ( [ "$VERBOSE" == TRUE ] && set -x -v
+   srun --jobid=$JOBID --pty bash
+   )
+done
+###############################################################################
+exit
+###############################################################################
+# might want to check job STATE is run or instantiated even if paused before
+# trying.
+#
+# can you execute the same command in all jobs?

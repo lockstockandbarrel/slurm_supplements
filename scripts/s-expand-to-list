@@ -1,0 +1,13 @@
+#!/bin/bash
+################################################################################
+#@(#) (FUNCTIONS) :-: expand a compact list of names with numeric suffixes to a comma-delimited line of values
+################################################################################
+source $(dirname $0)/.functions
+if [ "$*" = '' ]
+then
+  printf 'Enter list to expand to a line:'
+  read LINE
+  EXPAND_TO_LIST "$LINE"
+else
+  EXPAND_TO_LIST "$*"
+fi

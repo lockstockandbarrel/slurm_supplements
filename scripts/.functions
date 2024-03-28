@@ -1,0 +1,343 @@
+#!/bin/bash
+# shared bash(1) functions
+################################################################################
+function STANDARDENV(){
+export SLURM_TIME_FORMAT='%m-%d.%H:%M'
+read ROWS COLUMNS < <(stty size </dev/tty) # get screen width for use with cut(1)
+# (2 ** 63) -1
+export ROWS=${ROWS:-9223372036854775807} COLUMNS=${COLUMNS:=9223372036854775807}
+export DOWN=$(( ROWS / 2 ))
+[ ! -t 1 ] && COLUMNS=9223372036854775807 ROWS=9223372036854775807 DOWN=2147483647 # if stdout is not a terminal
+#unset  PAGER
+
+#echo PAGER $PAGER ROWS $ROWS COLUMNS $COLUMNS DOWN $DOWN 1>&2
+[ "$PAGER" = '' ] && PAGER=NTH_PAGER
+
+}
+################################################################################
+function HELPCAT(){
+# Program:     HELPCAT
+# Description: display help text with txt2man(1) if in searchpath else use cat(1)
+# Version:     1.0.0, 2023-12-24
+# Author:      John S. Urban
+# License:     MIT
+TTY=${TTY:-$(tty --silent||echo FALSE && echo TRUE)}
+case "$(which txt2man 2> /dev/null)" in
+*txt2man)
+if [ "$TTY" == TRUE ]
+then
+   cat|txt2man -t "$(basename $0)" -T -s 3  -v 'SLURM wrappers'|less -r
+else
+   cat
+fi
+;;
+*) cat ;;
+esac
+}
+################################################################################
+function EXPAND(){
+
+#Most member nodes of large clusters are named using a simple repetitive
+#pattern composed of a basename followed by a number (even though they
+#may have other aliases). Such names are easier to generate in scripts
+#than unique names; lend themselves to abbreviated forms; and generally
+#indicate that nodes are related members of a cluster.
+#
+#When host names follow this ${string}${number} pattern Slurm
+#commands can list nodes used for a job or command in a compact notation,
+#in which square brackets (i.e. [ and ]) are used to delimit lists and/or
+#ranges of the numeric values.
+#
+#This compressed form can be useful in creating compact displays as well as
+#generally being easier to enter in command-line mode than a long list
+#of hostnames.
+
+## expand a compact list of hostnames
+
+#Here is how to expand a compact list to full names on separate lines.
+#The command is just performing a string manipulation so the expanded
+#node names are not required to exist.
+    scontrol show hostnames "$(xargs <<<$@)"
+
+# Leading zeros can be used to specify the minimum length of the numbers in a range:
+
+#    $scontrol show hostnames 'pgh[0001-20,0100,0200]'|xargs -n 10
+
+}
+################################################################################
+function EXPAND_TO_LIST(){
+# call EXPAND but then create a comma-separated string instead of one line per hostname
+EXPAND $* |paste -d, -s
+# alternates
+# tr --squeeze-repeats ' ' ',' <<<$(EXPAND $*|xargs)
+#  sed -e 's/  */,/g' <<< "$*"
+}
+################################################################################
+function CONTRACT(){
+## Create a compact list from a list of hostnames
+#
+#The reverse operation is performed by the "hostlist" option, which can
+#generate a compact list from a list of full hostnames:
+#
+#    $scontrol show hostlist 'fy21-24-1,fy21-24-2,fy21-24-3,\
+#     fy21-24-5,fy21-24-6,fy21-24-7,fy21-24-8,fy21-24-9,\
+#     fy21-25-1,fy21-25-4,fy21-25-8'
+#
+
+    scontrol show hostlist $( sed -e 's/  */,/g' <<< "$*" )
+
+}
+################################################################################
+function NODELIST(){
+## Create a list of all node names
+#
+    sinfo --noheader --format '%N'
+}
+################################################################################
+function SELECT_ALLJOBS(){
+## dump all job info via squeue(1) and then grep and then return jobIds
+    #BUG# env -i $(which squeue) --noheader --format '%i|%all|egrep "$*"|cut -f 1 -d '|'
+    ALLJOBS "$@"|egrep "$*"|cut -f 9 -d '|'
+}
+################################################################################
+function ALLJOBS(){
+## dump all job info via squeue(1) ignoring environment variables that affect squeue(1)
+#   environment variables that affect squeue(1) are intentionally ignored
+    env -i $(which squeue) --noheader --format %all
+}
+################################################################################
+function HOSTNAMES(){
+## Create a list of all host names
+#
+    sinfo --noheader --format '%n'
+}
+################################################################################
+function EXPAND_JOBLIST(){
+# create comma-separated list of jobnumbers from a joblist. A blank means all jobs
+# assume input is a joblist. Default is all job numbers
+# make job numbers into a comma-separated list for Slurm commands
+export OTHER=$(EXPAND_TO_LIST ${*:-$(ALLJOBS)})
+}
+################################################################################
+function REGEX_JOBLIST(){
+export OTHER
+[ "$*" != '' ] && OTHER="$*"
+#squeue --format=%all|grep -i "${OTHER:-.}"
+OTHER=$(scontrol --oneliner show job |\
+               egrep -i "${OTHER:-.}"|\
+               cut -f 1 -d' '|\
+               sed -e 's/JobId=//g'|\
+               paste -d, -s\
+              )
+}
+################################################################################
+function DECLARE_JOBID(){
+#  given a Slurm JobId use scontrol(1) to show the job information and convert it to a bash declare(1) statement
+#  prefixing all the global environment variable names created with "Slurm_"
+JOB_ID="$1"
+declare -xg DECLARATIONS=$( scontrol show --oneliner --details job=$JOB_ID|
+            xargs -n 1|
+            sed -e 's/^/Slurm_/'|
+            sed -e 's/(null)$//' -e "s/=/='/" -e "s/$/'/" |
+            xargs
+            )
+declare -xg ${DECLARATIONS:-DECLARE_AT_LEAST=YES} USER
+}
+################################################################################
+function DECLARE_CONFIG(){
+declare TERMS="$1"
+# assuming no ' in input is useful and that case is not unexpected 
+DECLARATIONS=$(scontrol show config|grep -i '^ *'"$TERMS"' *='|xargs|sed -e 's/ *= */=/')
+declare -xg ${DECLARATIONS:-DECLARE_AT_LEAST=YES}
+}
+################################################################################
+function EXPAND_FILENAMES(){
+#
+# DEFINITELY DOES NOT WORK COMPLETELY YET
+#
+# Try to expand macros in filenames as "scontrol show job=$JOB_ID" shows unexpanded names
+# Assumes given a JobId it declares StdOut, StdIn, StdErr
+# According to the sbatch(1) documentation these macros are supported
+# %x  Job name
+# %u  User name
+# %j  Job ID
+# %a  Job array Index
+# %J  jobid.stepid of the running job. (e.g. "128.0")
+# %s  stepid of the running job.
+#
+# \\  Do not process any of the replacement symbols.
+# %%  The character "%".
+# %A  Job array's master job allocation number.
+#
+# %N  short hostname. This will create a separate IO file per node.
+# %n  Node identifier relative to current job (e.g. "0" is the first node of the running job)
+#     This will create a separate IO file per node.
+# %t  task identifier (rank) relative to current job. This will create a separate IO file per task.
+
+# So if called like so
+# JOB_ID=100
+# EXPAND_FILENAME $JOB_ID
+# These global environment variables should then be set
+# echo " StdOut $StdOut"
+# echo " StdErr $StdErr"
+# echo " StdIn  $StdIn "
+#
+JOB_ID="$1"
+unset JobId JobName UserId StdOut StdErr StdIn ArrayTaskId StepId bigJobId
+DECLARATIONS=$( scontrol show --oneliner --details job=$JOB_ID|
+   xargs -n 1|
+   sed -e 's/(null)//' -e "s/=/='/" -e "s/$/'/" |
+   egrep -i '\<JobName=|\<UserId=|\<JobId=|\<ArrayTaskId=|\<User=|\<StdOut=|\<StdErr=|\<StdIn|\<StepId='|
+   xargs
+)
+declare ${DECLARATIONS:-DECLARE_AT_LEAST=YES}
+UserId=$(sed -e 's/([0-9]*)//' <<<$UserId)
+[ "$StepId" != '' ] && bigJobId="$JobId.$StepId" || bigJobId="$JobId"
+
+StdOut=$( sed -e "s/%j/$JobId/g" -e "s/%x/$JobName/g" -e "s/%u/$UserId/g" -e "s/%J/$bigJobId/" -e "s/%a/$ArrayTaskId/" -e "s/%s/$StepId/"<<<$StdOut)
+StdErr=$( sed -e "s/%j/$JobId/g" -e "s/%x/$JobName/g" -e "s/%u/$UserId/g" -e "s/%J/$bigJobId/" -e "s/%a/$ArrayTaskId/" -e "s/%s/$StepId/"<<<$StdErr)
+declare -xg StdErr=$StdErr StdOut=$StdOut StdIn=$StdIn
+}
+################################################################################
+function UNSET_SQUEUE(){
+unset SLURM_BITSTR_LEN
+unset SQUEUE_USERS        # --users=<user_list>
+unset SLURM_TIME_FORMAT
+unset SQUEUE_FORMAT       # default -o <output_format>, --format=<output_format>
+unset SQUEUE_FORMAT2      # -O <output_format>, --Format=<output_format>
+unset SLURM_CLUSTERS
+unset SLURM_CONF
+unset SLURM_DEBUG_FLAGS
+unset SQUEUE_ACCOUNT
+unset SQUEUE_NAMES        # --name=<name_list>
+unset SQUEUE_ALL          # -a, --all
+unset SQUEUE_ARRAY        # -r, --array
+unset SQUEUE_FEDERATION   # --federation
+unset SQUEUE_LICENSES     # -l <license_list>, --license=<license_list>
+unset SQUEUE_LOCAL        # --local
+unset SQUEUE_PARTITION    # -p <part_list>, --partition=<part_list>
+unset SQUEUE_PRIORITY     # -P, --priority
+unset SQUEUE_QOS          # -p <qos_list>, --qos=<qos_list>
+unset SQUEUE_SIBLING      # --sibling
+unset SQUEUE_SORT         # -S <sort_list>, --sort=<sort_list>
+unset SQUEUE_STATES       # -t <state_list>, --states=<state_list>
+}
+################################################################################
+function PAGER(){
+# pager for displaying reports
+# use $PAGER as a pager program or use
+# trimming width to screen width and running through less(1)
+if [ "$PAGER" != '' ]
+then
+   $PAGER
+else
+   TRIM_PAGER
+fi
+}
+################################################################################
+function NTH_PAGER(){
+# pager for displaying reports
+# use $PAGER as a pager program or use first line as a header and repeat it
+# every $DOWN lines trimming width to screen width and running through less(1)
+DOWN=${1:-$DOWN}
+NTH ${DOWN:-2147483647} |cut -c 1-$COLUMNS|less -r --QUIT-AT-EOF --no-init
+}
+################################################################################
+function TRIM_PAGER(){
+# pager for displaying reports
+# use $PAGER as a pager program or use first line as a header and repeat it
+# every $DOWN lines trimming width to screen width and running through less(1)
+cat|cut -c 1-$COLUMNS|less -r --QUIT-AT-EOF --no-init
+}
+################################################################################
+function NTH(){
+# Read and echo one line as header and then NTH lines at a time preceeded by header using Bash
+read HEADER
+echo "$HEADER"
+NTH=${1:-20}
+while mapfile -t -n $NTH ary && ((${#ary[@]})); do
+   printf '%s\n' "${ary[@]}"
+   printf -- "$HEADER\n"
+done
+}
+################################################################################
+function TRIM(){
+# trim whitespace off a variable
+# usage:
+#    VAR=$(TRIM '    a b  c    ')
+#    echo "[$VAR]"
+A_=${*}
+A_=${A_## }
+A_=${A_%% }
+printf -- "$A_"
+unset A_
+}
+################################################################################
+function EXPAND_MATCH_TO_JOBS(){
+#
+# look at $OTHER and expand it to a comma-separated list of job IDs or assume it
+# is a regular expression to match against a dump of the job information
+#
+# generally assumes $OTHER is set and not blank or something passed as an argument
+#
+OTHER=$(TRIM $OTHER)
+[ "$*" != '' ] && OTHER="$*" 
+if [ "$(tr -d ']0-9_,[-'<<<${OTHER})" = '' ]  # looks like a joblist
+then
+    EXPAND_JOBLIST "${OTHER}"
+else
+    REGEX_JOBLIST "${OTHER}"
+fi
+}
+################################################################################
+function MESSAGE(){
+# overline and underline a single-line message -JSU
+MESSAGE="# $(TRIM $@) #"
+(
+unset IFS
+echo "$MESSAGE"|tr -C '\r\n' '='
+echo "$MESSAGE"
+echo "$MESSAGE"|tr -C '\r\n' '='
+)  1>&2
+}
+################################################################################
+function EXE(){
+# overline and underline a single-line command as a message and execute  -JSU
+(
+unset IFS
+MESSAGE "$@"
+)
+$@
+}
+################################################################################
+function VEXE(){
+# if verbose mode set overline and underline a single-line command as a message; and then unconditionally execute  -JSU
+[ "$VERBOSE" = TRUE ] && ( unset IFS; MESSAGE "$@") |grep --color=always '.*'
+$@
+}
+################################################################################
+function SUDO(){
+# overline and underline a single-line command as a message and execute via sudo(1) -JSU
+(
+unset IFS
+MESSAGE "$@"
+if [ "$USER" = root ]; then
+   $@
+else
+   sudo $@
+fi
+)
+# supplement with either good way to if can use sudo for the command but not get sudo alert like -l can produce
+# or tell if Slurm admin, coordinator, or administrator but not all Slurm installations run account manager
+}
+################################################################################
+if [ "$UNITTEST" == TRUE ]
+then
+   EXPAND '[000-100]'|xargs -n 10
+   [ $(CONTRACT $(EXPAND '[000-100]'|xargs)) == '[000-100]' ] && echo PASSED || echo FAILED
+   [ $(CONTRACT $(EXPAND '[020-30]')) == '[020-030]' ]        && echo PASSED || echo FAILED
+fi
+################################################################################
+# run unit tests
+# env UNITTEST=TRUE bash .functions
+###############################################################################

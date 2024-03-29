@@ -362,6 +362,7 @@ PARTITIONS=$(TRIM "$PARTITIONS"|tr --squeeze-repeats  ' ' ',' ) # comma-separate
 export EXE
 [ "$VERBOSE" == TRUE ] && EXE=EXE || EXE=
 [ "$VERBOSE" == TRUE ] && SUDO=SUDO || SUDO=sudo
+[ "$USER" == root ]    && EXE=
 ###############################################################################
 if [ "$VERBOSE" = TRUE ]
 then

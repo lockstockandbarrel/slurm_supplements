@@ -273,8 +273,7 @@ function SHOW(){
    )||(
    #$EXE sinfo --all --long --partition=$PARTITIONS
    $EXE LONG --partition=$PARTITIONS
-   )|
-    sed -e 's@NODES(A/I/O/T)@Alloc Idle Other Total@'|tr '/' ' '|column -t
+   )
 }
 ###############################################################################
 function TRANSPOSE(){

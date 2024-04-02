@@ -106,8 +106,9 @@ function BADNODES(){
 #       output.   When used with -l the output additionally includes the
 #       current node state.
 #
-sinfo --state='unknown,down,allocated,?,drain,drained,draining,no_respond,powering_down,power_down,power_up,fail,maint,reboot'\
- --format "| %n | %T | %C | %E | %U | %H"|
+#sinfo --state='unknown,down,allocated,?,drain,drained,draining,no_respond,powering_down,power_down,power_up,fail,maint,reboot'\
+sinfo --state='unknown,down,?,drain,drained,draining,no_respond,powering_down,power_down,fail,maint,reboot'\
+ --format "|%n|%T|%C|%E|%U|%H"|
  sed -e 's@CPUS(A/I/O/T)@ CPUS(|Alloc|Idle|Other|Total|)@'|
  sed -e 's@[ |][0-9][0-9]*/@|&@' -e 's@/@|@' -e 's@/@|@' -e 's@/[0-9][0-9]* @|&|@' -e 's@/@ @'|
  column -t -s '|'

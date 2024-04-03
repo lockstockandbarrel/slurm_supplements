@@ -81,7 +81,7 @@ function SHOW(){
     sinfo --format %all  $NODENAMES
 }
 ################################################################################
-function BADNODES(){
+function DRAINING(){
 #       Report only down, drained and draining nodes and their reason field:
 #
 #           $ sinfo -R
@@ -108,7 +108,7 @@ function BADNODES(){
 #
 #sinfo --state='unknown,down,allocated,?,drain,drained,draining,no_respond,powering_down,power_down,power_up,fail,maint,reboot'\
 sinfo --state='unknown,down,?,drain,drained,draining,no_respond,powering_down,power_down,fail,maint,reboot'\
- --format "|%n|%T|%C|%E|%U|%H"|
+ --format "|%n|%T|%C|%E|%U|%H" --sort=E|
  sed -e 's@CPUS(A/I/O/T)@ CPUS(|Alloc|Idle|Other|Total|)@'|
  sed -e 's@[ |][0-9][0-9]*/@|&@' -e 's@/@|@' -e 's@/@|@' -e 's@/[0-9][0-9]* @|&|@' -e 's@/@ @'|
  column -t -s '|'
@@ -146,7 +146,7 @@ done
 function ABBREVIATION_LIST(){
 cat <<\EOF
 current
-badnodes
+draining
 jobson
 dump
 show
@@ -324,7 +324,7 @@ load)        LOAD|PAGER              ;;
 list)        LIST|PAGER              ;;
 jobson)      JOBSON "$@"|PAGER       ;;
 current)     CURRENT                 ;;
-badnodes)    BADNODES "$@"|PAGER     ;;
+draining)    DRAINING "$@"|PAGER     ;;
 default*|*)
 (
 MESSAGE $0: favorite node listings
@@ -340,7 +340,7 @@ Keywords (abbreviations are allowed):
     + keyword     + selects type of node description. Allowed values are
     +-------------+-----------------------------------------------------
     + current     + query current node
-    + badnodes    + list down, drained, or draining nodes
+    + draining    + list down, drained, or draining nodes
     + jobson      + list jobs on specified nodes. Default to current node
     + list        +
     + load        +
@@ -361,7 +361,7 @@ EXAMPLE
     s-nodelists par '[100-104],110'
 
     # using abbreviator
-    s n d  # ==> Slurm nodes badnodes
+    s n d  # ==> Slurm nodes draining
 EOF
 )|PAGER
 ;;

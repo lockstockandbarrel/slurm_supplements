@@ -44,7 +44,7 @@ and common tasks
 #SBATCH --export=NONE --propagate=NONE --get-user-env=300L
 #
 # there are macros to help create unique output filenames, like %J
-#SBATCH --output=hostname.out.%J  ### --error=hostname.err.%J    # optionally create job stderr file
+#SBATCH --output=testjob_%J.out  ### --error=testjob_%J.err    # optionally create job stderr file
 #
 # if memory is not defined the default will be all the node on
 # the memory if the adminstrator has not changed it, meaning
@@ -62,7 +62,9 @@ and common tasks
 #
 #SBATCH --time 0-0:0:10 # maximum job time in D-HH:MM
 #
-## #SBATCH --job-name=hostname # job name (avoid non-alphanumeric characters)
+# unfortunately macros only work on output and error files, not jobnames
+# or other files
+## #SBATCH --job-name=myjob # job name (avoid non-alphanumeric characters)
 ## #SBATCH --partition debug
 ## #SBATCH --reservation=MY_RESERVATION
 ## #SBATCH --mail-type=END,FAIL          # Mail events (NONE, BEGIN, END, FAIL, ALL)

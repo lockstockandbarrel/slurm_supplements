@@ -1,0 +1,13 @@
+#!/bin/bash
+#SBATCH --job-name=jobs_in_job  --export=NONE --propagate=NONE
+#SBATCH --nodes 1 --ntasks=1 --time 0-0:0:10 --mem-per-cpu=1mb
+#SBATCH --output=/tmp/job_in_job.out.%J
+## SBATCH --chdir ~/
+#SBATCH --chdir /tmp
+
+################################################################################
+pwd
+scontrol show jobid=$SLURM_JOB_ID
+ls -ld /proc/self/fd/*
+################################################################################
+sleep 86400

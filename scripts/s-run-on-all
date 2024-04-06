@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 ###############################################################################
 #@(#) (ADMIN) :HW: submit small confidence test to each node
 ###############################################################################
@@ -29,7 +29,7 @@ fi
 # Note the quotes around "$TEMP": they are essential!
 eval set -- "$TEMP"
 unset TEMP
-declare -g -x -u WHICHONE=DEFAULT
+declare -g -x -u WHICHONE=''
 export VERBOSE=FALSE DRYRUN=FALSE SCRIPT_USER=${USER:-$LOGNAME}
 export SCRIPT_USER=''
 export ACCOUNT=''
@@ -42,7 +42,6 @@ export PARTITION=''
 export QOS=''
 export RESERVATION=''
 export REPEAT=1
-export OPERATION='resume'
 export VERBOSE_KEYS='+v +x'
 export ATTRIBUTE=''
 while true; do
@@ -83,7 +82,7 @@ while true; do
       ;;
       *)
          echo 'Internal error!' >&2
-         exit 1
+         exit 2
       ;;
    esac
 done
@@ -93,6 +92,8 @@ OTHER=''
 for arg; do
         OTHER="$OTHER $arg"
 done
+OTHER=$(sed -e 's/^ *//' <<<"${OTHER:-DEFAULT}")
+OTHER=${OTHER^^}
 }
 ###############################################################################
 function HELP(){
@@ -101,7 +102,7 @@ HELPCAT <<\EOF
 NAME
     s-run_on-all(1) - submit a small job to each node
 SYNOPSIS
-    s-run_on-all [--verbose][--dryrun][--which EXAMPLE_NAME] [OPTIONS]
+    s-run_on-all [--which] EXAMPLE_NAME [--verbose][--dryrun] [OPTIONS]
 
     s-run_on-all --help| --version | --usage
 DESCRIPTION
@@ -142,7 +143,7 @@ EOF
 function USAGE(){
 cat <<\EOF
 Job Selectors
-   JOBIDS             job IDS to resume
+   JOBIDS             job IDS to run
    -r,--repeat        count of times to repeat the submittal
    -M,--clusters      cluster_name
    -p,--partition     part_list
@@ -151,7 +152,7 @@ Job Selectors
    -w,--nodelist      hostlist
 
 Modes
-   -d,--dryrun        just showing submitalls
+   -d,--dryrun        just showing submitals
    -V,--verbose       verbose mode
 
 Informational
@@ -163,6 +164,7 @@ EOF
 ###############################################################################
 function WHICHJOB(){
 #-----------------------------------------------------------------------------#
+WHICHONE=${WHICHONE:-$OTHER}
 case "$WHICHONE" in
 #-----------------------------------------------------------------------------#
 1|ARRAY)
@@ -263,6 +265,14 @@ scontrol write batch_script "$SLURM_JOB_ID" -
 sleep 600
 EOFEX
 ;;
+3|STDIN)
+if [ -r "$UUID" ]
+then
+   cat $UUID
+else
+   cat|tee $UUID
+fi
+;;
 #-----------------------------------------------------------------------------#
 999|DEFAULT)
 cat <<\EOFEX
@@ -274,6 +284,7 @@ cat <<\EOFEX
 #SBATCH -N 1-1 -n 1 --threads-per-core=1
 #SBATCH --mem=1000
 #SBATCH --time=10:00
+: verbose echo mode
 set -v -x
 : file permission mask
 umask
@@ -291,10 +302,20 @@ export SRUN_EXPORT_ENV=ALL
 : 'echo job parameter information'
 scontrol show jobid=$SLURM_JOB_ID
 : 'echo job input script'
-scontrol
+scontrol write batch_script "$SLURM_JOB_ID" -
 # do something to generate a report of success or fail
 sleep 3600
 EOFEX
+;;
+#-----------------------------------------------------------------------------#
+HELP)
+cat 1>&2 <<EOF
+   + DEFAULT   example of 1-core job
+   + LOGIN     example of 1-core job with "bash -l"
+   + ARRAY     using a job array
+   + STDIN     read job from stdin
+EOF
+exit 3
 ;;
 #-----------------------------------------------------------------------------#
 *)
@@ -303,7 +324,9 @@ cat 1>&2 <<EOF
    + DEFAULT   example of 1-core job
    + LOGIN     example of 1-core job with "bash -l"
    + ARRAY     using a job array
+   + STDIN     read job from stdin
 EOF
+exit 4
 ;;
 #-----------------------------------------------------------------------------#
 esac
@@ -315,6 +338,7 @@ esac
 #
 source $(dirname $0)/.functions
 PARSE "$@"
+export UUID=${TMPDIR:-${TMP:-/tmp}}/scr_$(uuidgen)
 
 if [ "$VERBOSE" = TRUE ]
 then
@@ -345,6 +369,7 @@ OPTIONS=''
 [ "$RESERVATION" != '' ] && OPTIONS="$OPTIONS --reservation $RESERVATION"
 
 NODELIST=${NODELIST:-$(NODELIST)}
+[ "${WHICHONE:-$OTHER}" == HELP ] && DRYRUN=TRUE
 
 for NAME in $(EXPAND $NODELIST|xargs)
 do
@@ -357,7 +382,7 @@ do
    ;;
    esac
 
-   MESSAGE "sbatch --partition $PARTITION --overcommit --job-name 'Run_on_$NAME' -w $NAME"
+   MESSAGE "sbatch --partition $PARTITION --overcommit --job-name 'Run_on_$NAME' -w $NAME" 1>&2
 
    for (( COUNT=0 ; REPEAT-COUNT > 0; COUNT=COUNT+1 ))
    do
@@ -373,6 +398,7 @@ do
 
 done
 ###############################################################################
+rm -f $UUID
 exit
 ###############################################################################
 

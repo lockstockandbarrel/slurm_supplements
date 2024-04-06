@@ -91,7 +91,7 @@ else
    dr*)    ARGS[0]=drain-cluster;;
    d*)     ARGS[0]=docs;;
 
-   e*)     ARGS[0]=example ;;
+   exa*)   ARGS[0]=example ;;
    ho*)    ARGS[0]=nodes ;;      # hosts equivalent to nodes
    jobs*)  ARGS[0]=joblists;;    # jobs equivalent to joblists
    nodes*) ARGS[0]=nodelists;;    # nodes equivalent to nodelists

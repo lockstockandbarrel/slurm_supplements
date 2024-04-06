@@ -12,6 +12,7 @@ directories in your path and enter:
     pending  # show expanded list of pending jobs
     running  # show expanded list of running jobs
     lsload   # list node loads
+    draining # list down or draining nodes
 
 ## Slurm jobs must be ASCII
 

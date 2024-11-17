@@ -1,0 +1,27 @@
+#!/bin/bash
+squeue --array --format '%A %u %T sockets_per_node=%H cores_per_socket=%I threads_per_core=%J %c %C  %D'
+exit
+%u    User  name for a job or job step.  (Valid for jobs and job steps)
+%T    Job  state in extended form.  See the JOB STATE CODES section below for a list of possible states. 
+
+%H    Number of sockets per node requested by the job.  --sockets-per-node. * if not set
+%I    Number of cores per socket requested by the job.  --cores-per-socket. * if not set 
+%J    Number of threads per core requested by the job.  --threads-per-core. * if not set
+
+%A    Number of tasks created by a job step. -ntasks
+%c    Minimum number of CPUs (processors) per node requested  by the job.  --mincpus 0
+
+%C    Number of CPUs (processors) requested by the job or  allo‐
+      cated  to  it  if already running.  As a job is completing
+      this number will reflect the current number of CPUs  allo‐
+      cated.  (Valid for jobs only)
+
+%D    Number of nodes allocated to the job or the minimum number
+      of  nodes  required by a pending job. The actual number of
+      nodes allocated to a pending job may exceed this number if
+      the  job  specified  a node range count (e.g.  minimum and
+      maximum node counts) or  the  job  specifies  a  processor
+      count instead of a node count. As a job is completing this
+      number will reflect the current number of nodes allocated.
+      (Valid for jobs only)
+

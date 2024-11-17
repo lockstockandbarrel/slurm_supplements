@@ -1,0 +1,58 @@
+scontrol update NodeName=foo State=drain Reason=tmp_file_system_full
+exit
+
+<p><a id="health_check_example"><b>Does anyone have an example node
+health check script for Slurm?</b></a><br>
+Probably the most comprehensive and lightweight health check tool out
+there is
+<a href="https://github.com/mej/nhc">Node Health Check</a>.
+It has integration with Slurm as well as Torque resource managers.</p>
+set -v -x
+sinfo # default        "%#P %.5a %.10l %.6D %.6t %N"
+sinfo  --summarize    # "%#P %.5a %.10l %.16F  %N"
+sinfo  --long         # "%#P %.5a %.10l %.10s %.4r %.8h %.10g %.6D  %.11T %.11i %N"
+sinfo  --Node         # "%#N %.6D %#P %6t"
+sinfo  --long --Node  # "%#N %.6D %#P %.11T %.4c %.8z %.6m %.8d %.6w %.8f %20E"
+sinfo  --list-reasons # "%20E %9u %19H %N"
+sinfo  --long --list-reasons # "%20E %12U %19H %6t %N"
+sinfo # default        "%#P %.5a %.10l %.6D %.6t %N"
+PARTITION  AVAIL  TIMELIMIT  NODES  STATE NODELIST
+debug         up   infinite      1    mix mercury
+production    up   infinite      1    mix mercury
+express*      up   infinite      1    mix mercury
+
+sinfo  --summarize    # "%#P %.5a %.10l %.16F  %N"
+PARTITION  AVAIL  TIMELIMIT   NODES(A/I/O/T)  NODELIST
+debug         up   infinite          1/0/0/1  mercury
+production    up   infinite          1/0/0/1  mercury
+express*      up   infinite          1/0/0/1  mercury
+Mon May  6 19:48:02 2024
+
+sinfo  --long         # "%#P %.5a %.10l %.10s %.4r %.8h %.10g %.6D  %.11T %.11i %N"
+PARTITION  AVAIL  TIMELIMIT   JOB_SIZE ROOT OVERSUBS     GROUPS  NODES       STATE NODELIST
+debug         up   infinite 1-infinite   no       NO        all      1       mixed mercury
+production    up   infinite 1-infinite   no       NO        all      1       mixed mercury
+express*      up   infinite 1-infinite   no       NO        all      1       mixed mercury
+
+sinfo  --Node         # "%#N %.6D %#P %6t"
+NODELIST   NODES  PARTITION STATE 
+mercury        1      debug mix   
+mercury        1 production mix   
+mercury        1   express* mix   
+Mon May  6 19:48:03 2024
+
+sinfo  --long --Node  # "%#N %.6D %#P %.11T %.4c %.8z %.6m %.8d %.6w %.8f %20E"
+
+%N        %D     %T     %c    %z     %m      %d        %w      %f        %E
+NODELIST  NODES  STATE  CPUS  S:C:T  MEMORY  TMP_DISK  WEIGHT  AVAIL_FE  REASON
+mercury        1 mixed    4    1:4:1   3600     5000      1   (null) none                
+mercury        1 mixed    4    1:4:1   3600     5000      1   (null) none                
+mercury        1 express*       mixed    4    1:4:1   3600     5000      1   (null) none                
+
+sinfo  --list-reasons # "%E %u %H %N
+%H         %N
+TIMESTAMP  NODELIST
+Mon May  6 19:48:03 2024
+
+sinfo  --long --list-reasons # "%20E %12U %19H %6t %N"
+REASON               USER         TIMESTAMP           STATE  NODELIST

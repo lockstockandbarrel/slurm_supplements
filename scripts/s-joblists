@@ -54,10 +54,10 @@ function PENDING(){
 export OTHER
 #OTHER=${*}
 [ "$OTHER" != '' ] && OTHER="--jobs $OTHER"
-#   JOBID  USER  NODES CPUS NICE PRIORITY QOS TIME_LIMIT SUBMIT_TIME MEM  TMP  FEATURES  RESERVATION  WCKEY  LICENSES  REQ_NODES DEPENDENCY PARTION NAME REASON
-#    %i    %u    %D    %C   %y   %Q       %q  %l         %V          %m   %d   %f        %v           %w     %W        %n        %E         %P      %j   %r
+#   JOBID  USER  NODES CPUS NICE PRIORITY ACCOUNT QOS TIME_LIMIT SUBMIT_TIME MEM  TMP  FEATURES  RESERVATION  WCKEY  LICENSES  REQ_NODES DEPENDENCY PARTITION NAME REASON
+#    %i    %u    %D    %C   %y   %Q       %a      %q  %l         %V          %m   %d   %f        %v           %w     %W        %n        %E         %P        %j   %r
 (
-export SQUEUE_FORMAT="%i|%u|%D|%C|%y|%Q|%q|%l|%V|%m|%d|%f|%v|%w|%W|%n|%P|%j|%E|%r" # default -o <output_format>, --format=<output_format>
+export SQUEUE_FORMAT="%i|%u|%D|%C|%y|%Q|%a|%q|%l|%V|%m|%d|%f|%v|%w|%W|%n|%P|%j|%E|%r" # default -o <output_format>, --format=<output_format>
 DECLARE_CONFIG SLURM_VERSION
 IFS=. read MAJOR MINOR MINNOW OTHERSTUFF <<<$SLURM_VERSION
 

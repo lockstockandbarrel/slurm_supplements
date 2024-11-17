@@ -16,7 +16,7 @@ trap '/bin/rm -f $DBNAME.txt' EXIT 0
 
 export DBNAME=/tmp/scr_$(uuidgen)
 rm -f $DBNAME.txt
-squeue --format=%all|
+squeue --array --format=%all|
 sed -e '1,1{s/S:C:T/S_C_T/g}'           \
     -e '1,1{s/(/_/g}'                   \
     -e '1,1{s/)//g}'                    \
@@ -161,7 +161,7 @@ node|nodes)                           runit_sinfo   nodes        ;;
 test_sinfo)  export PAGER=cat       ; runit_sinfo   test_sinfo   ;;
 test_squeue) export PAGER=cat       ; runit_squeue  test_squeue  ;;
 *)
-cat <<\EOF
+cat <<EOF
 Examples of dumping squeue(1) or sinfo() data into SQLite3 to generate
 Slurm job reports.
 

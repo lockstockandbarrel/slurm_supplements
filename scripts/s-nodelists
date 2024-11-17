@@ -5,6 +5,7 @@
 function LIST(){
 # status of each node
 sinfo -N -r -l
+sinfo --format="%20E %12U %19H %6t %N"
 }
 ################################################################################
 function LOAD(){

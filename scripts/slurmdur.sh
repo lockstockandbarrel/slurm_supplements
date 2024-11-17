@@ -49,7 +49,7 @@ ASSERT  259200    '           1d       1d    1d  '
 # negative values
 ASSERT  302400    4d-12h
 ASSERT  -86400     -1d
-ASSERT  31449600 365d
+ASSERT  31536000 365d
 exit
 }
 ################################################################################
@@ -131,7 +131,7 @@ esac
 # for Slurm one number is minutes, not seconds
 case "${original,,}" in
 *[smhdw:-]*) echo "${VALUE:-0}"  ;;
-*) echo "$(( ${VALUE:-0}*60 ))" ;;
+*) echo "$(awk '{print $1 * 60}' <<< $VALUE)" ;;
 esac
 ################################################################################
 exit
